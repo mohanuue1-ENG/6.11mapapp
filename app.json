@@ -1,0 +1,41 @@
+﻿{
+  "expo": {
+    "name": "6.11 Drive GPS",
+    "slug": "drive-611-gps",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/logo.jpg",
+    "backgroundColor": "#000C11",
+    "splash": { "image": "./assets/splash-blank.png", "resizeMode": "contain", "backgroundColor": "#000C11" },
+    "userInterfaceStyle": "dark",
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "6.11 Drive GPS sends your truck's location to your company while you work, including when the app is in the background.",
+          "locationWhenInUsePermission": "6.11 Drive GPS uses your location to show your truck on the fleet map.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
+    ],
+    "ios": {
+      "bundleIdentifier": "com.drive611.gps",
+      "infoPlist": {
+        "UIBackgroundModes": ["location"]
+      }
+    },
+    "android": {
+      "package": "com.drive611.gps",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ]
+    }
+  }
+}
+
