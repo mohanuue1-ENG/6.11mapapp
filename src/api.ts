@@ -6,6 +6,8 @@ import { API_URL } from './config';
 // new one, which is saved before anything else happens.
 const ACCESS_KEY = 'access_token';
 const REFRESH_KEY = 'refresh_token';
+// Kept after sign-out: a phone that was verified and remembered can sign in without a text-message code.
+const DEVICE_KEY = 'device_token';
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) {
@@ -112,13 +114,57 @@ export async function call(path: string, init: RequestInit = {}) {
   }
 }
 
-export async function login(email: string, password: string) {
-  const data = await raw('/auth/login', { method: 'POST', auth: false, body: JSON.stringify({ email, password }) });
+export type SessionUser = { id: string; name: string };
+export type LoginResult =
+  | { kind: 'signedIn'; user: SessionUser }
+  | { kind: 'verify'; challengeId: string; phoneHint: string; devCode?: string };
+
+// Keeps the session and, when the server sent one, the "remember this phone" token. Signing in without ticking
+// "remember" forgets any older token.
+async function startSession(data: any, remember: boolean): Promise<SessionUser> {
   if (data.user.role !== 'DRIVER') {
     throw new ApiError(403, 'FORBIDDEN', 'This app is for drivers. Company administrators sign in on the website.');
   }
   await saveTokens(data);
-  return data.user as { id: string; name: string };
+  if (data.deviceToken) await SecureStore.setItemAsync(DEVICE_KEY, data.deviceToken);
+  else if (!remember) await SecureStore.deleteItemAsync(DEVICE_KEY).catch(() => {});
+  return data.user;
+}
+
+// Step 1 of signing in. A driver is then asked for the code texted to their phone, unless this phone was
+// verified and remembered within the last 30 days.
+export async function login(email: string, password: string): Promise<LoginResult> {
+  const deviceToken = await SecureStore.getItemAsync(DEVICE_KEY);
+  const data = await raw('/auth/login', {
+    method: 'POST',
+    auth: false,
+    body: JSON.stringify({ email, password, ...(deviceToken ? { deviceToken } : {}) }),
+  });
+  if (data.verificationRequired) {
+    return { kind: 'verify', challengeId: data.challengeId, phoneHint: data.phoneHint, devCode: data.devCode };
+  }
+  return { kind: 'signedIn', user: await startSession(data, true) };
+}
+
+// Step 2: the texted code. With `remember`, this phone skips the code for the next 30 days.
+export async function verifyLogin(challengeId: string, code: string, remember: boolean): Promise<SessionUser> {
+  const data = await raw('/auth/login/verify', { method: 'POST', auth: false, body: JSON.stringify({ challengeId, code, remember }) });
+  return startSession(data, remember);
+}
+
+// Creating an account: the driver gives the phone number their company put on their profile and a code is texted.
+export async function requestSignupCode(phone: string): Promise<{ phoneHint: string; devCode?: string }> {
+  return raw('/auth/driver/request-code', { method: 'POST', auth: false, body: JSON.stringify({ phone }) });
+}
+
+// Checks the typed code without using it up, so a wrong code is found on the code step.
+export async function checkSignupCode(phone: string, code: string): Promise<void> {
+  await raw('/auth/driver/check-code', { method: 'POST', auth: false, body: JSON.stringify({ phone, code }) });
+}
+
+export async function registerDriver(input: { phone: string; code: string; name: string; email: string; password: string; remember: boolean }): Promise<SessionUser> {
+  const data = await raw('/auth/driver/register', { method: 'POST', auth: false, body: JSON.stringify(input) });
+  return startSession(data, input.remember);
 }
 
 export async function logout() {

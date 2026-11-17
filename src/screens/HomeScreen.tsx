@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Image, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import NetInfo from '@react-native-community/netinfo';
@@ -6,12 +6,12 @@ import { ApiError, DriverProfile, Trip, endTrip, getProfile, listTrips, logout, 
 import { clearQueue, pendingCount, readMeta, SyncMeta } from '../queue';
 import { flushQueue } from '../sync';
 import { currentPermission, getTripFix, setSharingSwitchedOff, sharingSwitchedOff, isTracking, requestTrackingPermission, startTracking, stopTracking, TrackingPermission } from '../location';
-import { colors } from '../theme';
+import { Colors, useTheme } from '../theme';
 import MapView, { MapHandle, MapPosition } from '../MapView';
 import Logo from '../Logo';
 import TabBar, { TabItem } from '../TabBar';
 
-type Tab = 'home' | 'trips' | 'alerts' | 'profile';
+type Tab = 'home' | 'trips' | 'alerts';
 type AlertItem = { id: string; level: 'error' | 'warn' | 'info' | 'ok'; title: string; text: string };
 
 const ago = (iso: string | null) => {
@@ -24,14 +24,17 @@ const miles = (m: number | null | undefined) => (m == null ? null : m / 1609.344
 const tripLine = (t: Trip) =>
   t.status === 'ACTIVE' ? 'In progress' : `${Math.round((t.durationSeconds ?? 0) / 60)} min${t.distanceMeters == null ? '' : ` · ${miles(t.distanceMeters)!.toFixed(1)} mi`}`;
 
-const LEVEL: Record<AlertItem['level'], { icon: keyof typeof Ionicons.glyphMap; color: string }> = {
+const levelsFor = (colors: Colors): Record<AlertItem['level'], { icon: keyof typeof Ionicons.glyphMap; color: string }> => ({
   error: { icon: 'alert-circle', color: colors.red },
   warn: { icon: 'warning', color: colors.amber },
   info: { icon: 'information-circle', color: colors.blue },
-  ok: { icon: 'checkmark-circle', color: colors.green },
-};
+  ok: { icon: 'checkmark-circle', color: colors.accent },
+});
 
 export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void }) {
+  const { colors, mode, toggle } = useTheme();
+  const s = useMemo(() => makeStyles(colors), [colors]);
+  const LEVEL = useMemo(() => levelsFor(colors), [colors]);
   const [tab, setTab] = useState<Tab>('home');
   const [profile, setProfile] = useState<DriverProfile | null>(null);
   const [profileError, setProfileError] = useState('');
@@ -48,6 +51,7 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
   const [pos, setPos] = useState<MapPosition | null>(null);
   const [posError, setPosError] = useState('');
   const [mapOpen, setMapOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const bigMap = useRef<MapHandle>(null);
 
   const refreshStatus = useCallback(async () => {
@@ -222,26 +226,22 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
   // ---------- Home ----------
   const homeTab = (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={s.page} showsVerticalScrollIndicator={false}>
-      <View style={[s.row, { marginBottom: 20 }]}>
-        <View style={s.avatar}><Text style={s.avatarText}>{(profile?.driver.name ?? '?').trim().charAt(0).toUpperCase()}</Text></View>
-        <View style={{ flex: 1, marginLeft: 12 }}>
-          <Text style={s.hello}>{profile ? `Hello, ${firstName}` : ' '}</Text>
-          <Text style={s.sub}>{truckShort}{profile ? ` · ${profile.company.name}` : ''}</Text>
-        </View>
-        <Image source={require('../../assets/logo.jpg')} style={s.miniLogo} accessibilityLabel="6.11 Drive GPS" />
+      <View style={{ marginBottom: 18 }}>
+        <Text style={s.hello}>{profile ? `Hello, ${firstName}` : ' '}</Text>
+        <Text style={s.sub}>{truckShort}{profile ? ` · ${profile.company.name}` : ''}</Text>
       </View>
 
       <View style={s.card}>
         <View style={s.row}>
           <View style={[s.row, { flex: 1 }]}>
-            <View style={[s.statusDot, { backgroundColor: tracking ? colors.green : '#6B7280' }]} />
+            <View style={[s.statusDot, { backgroundColor: tracking ? colors.accent : colors.neutralDot }]} />
             <View style={{ marginLeft: 10, flex: 1 }}>
               <Text style={s.cardTitle}>{tracking ? 'Tracking Active' : 'Tracking Off'}</Text>
               <Text style={s.sub} numberOfLines={1}>{tracking ? syncLine : 'Your company cannot see your truck'}</Text>
             </View>
           </View>
           <TouchableOpacity style={[s.chip, tracking ? s.chipOff : s.chipOn]} onPress={toggleTracking} activeOpacity={0.85}>
-            <Text style={[s.chipText, { color: tracking ? colors.text : '#052E16' }]}>{tracking ? 'Stop' : 'Start'}</Text>
+            <Text style={[s.chipText, { color: tracking ? colors.text : colors.onAccent }]}>{tracking ? 'Stop' : 'Start'}</Text>
           </TouchableOpacity>
         </View>
         {!!modeNote && tracking && <Text style={s.warn}>{modeNote}</Text>}
@@ -250,12 +250,12 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
 
       <View style={[s.row, { gap: 12, marginBottom: 12 }]}>
         <View style={[s.card, s.stat]}>
-          <Ionicons name="speedometer-outline" size={20} color={colors.green} />
+          <Ionicons name="speedometer-outline" size={20} color={colors.accent} />
           <Text style={s.statValue}>{mph ?? '–'}<Text style={s.statUnit}> mph</Text></Text>
           <Text style={s.sub}>Speed</Text>
         </View>
         <View style={[s.card, s.stat]}>
-          <Ionicons name="navigate-outline" size={20} color={colors.green} />
+          <Ionicons name="navigate-outline" size={20} color={colors.accent} />
           <Text style={s.statValue}>{todayMiles.toFixed(0)}<Text style={s.statUnit}> mi</Text></Text>
           <Text style={s.sub}>Today</Text>
         </View>
@@ -271,8 +271,8 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
             <Text style={s.sub} numberOfLines={1}>{pos ? `${pos.latitude.toFixed(5)}, ${pos.longitude.toFixed(5)}` : posError || 'Finding your position…'}</Text>
           </View>
           <View style={[s.row, { gap: 4 }]}>
-            <Text style={{ color: colors.green, fontWeight: '700', fontSize: 13 }}>Open map</Text>
-            <Ionicons name="expand-outline" size={16} color={colors.green} />
+            <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 13 }}>Open map</Text>
+            <Ionicons name="expand-outline" size={16} color={colors.accent} />
           </View>
         </View>
       </TouchableOpacity>
@@ -299,7 +299,7 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
         <Text style={s.label}>CURRENT TRIP</Text>
         {profile?.activeTrip ? (
           <>
-            <Text style={[s.cardTitle, { color: colors.green }]}>● In progress</Text>
+            <Text style={[s.cardTitle, { color: colors.accent }]}>● In progress</Text>
             <Text style={s.sub}>Started {new Date(profile.activeTrip.startedAt).toLocaleTimeString()}</Text>
           </>
         ) : (
@@ -325,7 +325,7 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
           <View key={t.id} style={s.card}>
             <View style={s.row}>
               <Text style={s.cardTitle}>{new Date(t.startedAt).toLocaleDateString()}</Text>
-              <Text style={{ color: t.status === 'ACTIVE' ? colors.green : colors.muted, fontWeight: '700', fontSize: 12 }}>{t.status === 'ACTIVE' ? 'LIVE' : 'COMPLETED'}</Text>
+              <Text style={{ color: t.status === 'ACTIVE' ? colors.accent : colors.muted, fontWeight: '700', fontSize: 12 }}>{t.status === 'ACTIVE' ? 'LIVE' : 'COMPLETED'}</Text>
             </View>
             <Text style={s.sub}>Truck #{t.truck.truckNumber} · {tripLine(t)}</Text>
           </View>
@@ -350,42 +350,88 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
     </ScrollView>
   );
 
-  // ---------- Profile ----------
-  const profileTab = (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={s.page} showsVerticalScrollIndicator={false}>
-      <Text style={s.title}>Profile</Text>
-      <View style={[s.card, { alignItems: 'center', paddingVertical: 26 }]}>
-        <View style={[s.avatar, { width: 76, height: 76, borderRadius: 38 }]}><Text style={[s.avatarText, { fontSize: 32 }]}>{(profile?.driver.name ?? '?').trim().charAt(0).toUpperCase()}</Text></View>
-        <Text style={[s.cardTitle, { fontSize: 20, marginTop: 12 }]}>{profile?.driver.name ?? '…'}</Text>
-        <Text style={s.sub}>{profile?.company.name ?? ' '}</Text>
+  // ---------- Profile (opened from the top bar) ----------
+  const initial = (profile?.driver.name ?? '?').trim().charAt(0).toUpperCase();
+  const detail = (label: string, value: string | null | undefined) => (
+    <View style={s.detailRow} key={label}>
+      <Text style={s.detailLabel}>{label}</Text>
+      <Text style={s.detailValue}>{value && value.trim() ? value : '–'}</Text>
+    </View>
+  );
+  const truckName = profile?.truck ? [profile.truck.make, profile.truck.model].filter(Boolean).join(' ') : '';
+  const profileSheet = (
+    <Modal visible={profileOpen} transparent animationType="slide" onRequestClose={() => setProfileOpen(false)} statusBarTranslucent>
+      <View style={s.profileBackdrop}>
+        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setProfileOpen(false)} accessibilityLabel="Close profile" />
+        <View style={s.profileSheet}>
+          <View style={s.grab} />
+          <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
+            <View style={{ alignItems: 'center', marginBottom: 18 }}>
+              <View style={[s.avatar, { width: 76, height: 76, borderRadius: 38 }]}><Text style={[s.avatarText, { fontSize: 32 }]}>{initial}</Text></View>
+              <Text style={[s.cardTitle, { fontSize: 20, marginTop: 12 }]}>{profile?.driver.name ?? '…'}</Text>
+              <Text style={s.sub}>{profile?.company.name ?? ' '}</Text>
+            </View>
+
+            <View style={s.card}>
+              <Text style={s.label}>DRIVER</Text>
+              {detail('Name', profile?.driver.name)}
+              {detail('Driver number', profile?.driver.driverNumber)}
+              {detail('Phone', profile?.driver.phone)}
+              {detail('Company', profile?.company.name)}
+            </View>
+
+            <View style={s.card}>
+              <Text style={s.label}>ASSIGNED TRUCK</Text>
+              {profile?.truck ? (
+                <>
+                  {detail('Truck number', `#${profile.truck.truckNumber}`)}
+                  {detail('Plate', profile.truck.plateNumber)}
+                  {detail('Make / model', truckName)}
+                </>
+              ) : (
+                <Text style={s.cardTitle}>{profile ? 'No truck assigned' : 'Loading…'}</Text>
+              )}
+            </View>
+
+            <View style={s.card}>
+              <Text style={s.label}>STATUS</Text>
+              {detail('Location sharing', tracking ? 'On' : 'Off')}
+              {detail('Sync', syncLine)}
+              {detail('Current trip', profile?.activeTrip ? `In progress · since ${new Date(profile.activeTrip.startedAt).toLocaleTimeString()}` : 'No active trip')}
+            </View>
+
+            <TouchableOpacity style={s.signOut} onPress={() => { setProfileOpen(false); signOut(); }} activeOpacity={0.85}>
+              <Ionicons name="log-out-outline" size={20} color={colors.red} />
+              <Text style={{ color: colors.red, fontWeight: '800', fontSize: 15, marginLeft: 8 }}>Sign out</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
       </View>
-      <View style={s.card}>
-        <Text style={s.label}>ASSIGNED TRUCK</Text>
-        <Text style={s.cardTitle}>{truckLabel}</Text>
-      </View>
-      <View style={s.card}>
-        <Text style={s.label}>LOCATION SHARING</Text>
-        <Text style={s.cardTitle}>{tracking ? 'On' : 'Off'}</Text>
-        <Text style={s.sub}>{syncLine}</Text>
-      </View>
-      <TouchableOpacity style={s.signOut} onPress={signOut} activeOpacity={0.85}>
-        <Ionicons name="log-out-outline" size={20} color={colors.red} />
-        <Text style={{ color: colors.red, fontWeight: '800', fontSize: 15, marginLeft: 8 }}>Sign out</Text>
-      </TouchableOpacity>
-    </ScrollView>
+    </Modal>
   );
 
   const tabs: TabItem<Tab>[] = [
     { id: 'home', label: 'Home', icon: 'home-outline', activeIcon: 'home' },
     { id: 'trips', label: 'Trips', icon: 'git-branch-outline', activeIcon: 'git-branch' },
     { id: 'alerts', label: 'Alerts', icon: 'notifications-outline', activeIcon: 'notifications', badge: needsAttention || undefined },
-    { id: 'profile', label: 'Profile', icon: 'person-outline', activeIcon: 'person' },
   ];
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      {tab === 'home' ? homeTab : tab === 'trips' ? tripsTab : tab === 'alerts' ? alertsTab : profileTab}
+      <View style={s.topBar}>
+        <Logo size={36} />
+        <View style={s.row}>
+          <TouchableOpacity style={s.modeBtn} onPress={toggle} hitSlop={8} accessibilityLabel={mode === 'night' ? 'Switch to day mode' : 'Switch to night mode'}>
+            <Ionicons name={mode === 'night' ? 'sunny-outline' : 'moon-outline'} size={20} color={colors.text} />
+          </TouchableOpacity>
+          <TouchableOpacity style={[s.avatar, { width: 42, height: 42, borderRadius: 21 }]} onPress={() => setProfileOpen(true)} hitSlop={6} accessibilityLabel="Open profile">
+            <Text style={[s.avatarText, { fontSize: 18 }]}>{initial}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+      <View style={{ flex: 1 }}>{tab === 'home' ? homeTab : tab === 'trips' ? tripsTab : alertsTab}</View>
       <TabBar tabs={tabs} value={tab} onChange={setTab} />
+      {profileSheet}
 
       <Modal visible={mapOpen} animationType="slide" onRequestClose={() => setMapOpen(false)} statusBarTranslucent>
         <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -401,8 +447,8 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
                 <Text style={s.sub}>{pos ? `${pos.latitude.toFixed(5)}, ${pos.longitude.toFixed(5)}${pos.accuracy != null ? ` · ±${Math.round(pos.accuracy)} m` : ''}` : posError || 'Finding your position…'}</Text>
               </View>
               <View style={[s.row, { gap: 6 }]}>
-                <View style={[s.statusDot, { backgroundColor: tracking ? colors.green : '#6B7280' }]} />
-                <Text style={{ color: tracking ? colors.green : colors.muted, fontWeight: '700', fontSize: 12 }}>{tracking ? 'Sharing' : 'Not sharing'}</Text>
+                <View style={[s.statusDot, { backgroundColor: tracking ? colors.accent : colors.neutralDot }]} />
+                <Text style={{ color: tracking ? colors.accent : colors.muted, fontWeight: '700', fontSize: 12 }}>{tracking ? 'Sharing' : 'Not sharing'}</Text>
               </View>
             </View>
             <TouchableOpacity style={[s.cta, { marginTop: 14 }, tracking && { backgroundColor: colors.surface2 }]} onPress={toggleTracking} activeOpacity={0.85}>
@@ -415,35 +461,43 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
   );
 }
 
-const s = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  page: { padding: 18, paddingTop: 58, paddingBottom: 130 },
+  page: { padding: 18, paddingTop: 10, paddingBottom: 130 },
+  topBar: { paddingTop: 48, paddingHorizontal: 18, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { fontSize: 28, fontWeight: '800', color: colors.text, marginBottom: 16 },
   hello: { fontSize: 20, fontWeight: '800', color: colors.text },
   sub: { fontSize: 13, color: colors.muted, marginTop: 2 },
   label: { fontSize: 11, fontWeight: '700', color: colors.muted, letterSpacing: 0.7, marginBottom: 8 },
   card: { backgroundColor: colors.surface, borderRadius: 18, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.border },
   cardTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
-  miniLogo: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(34,197,94,0.5)' },
-  avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: colors.green, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 20, fontWeight: '800', color: '#052E16' },
+  modeBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  profileBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  profileSheet: { backgroundColor: colors.bg, borderTopLeftRadius: 26, borderTopRightRadius: 26, maxHeight: '88%', borderTopWidth: 1, borderColor: colors.border },
+  grab: { alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: colors.border, marginTop: 10 },
+  detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
+  detailLabel: { fontSize: 13, color: colors.muted, flex: 1 },
+  detailValue: { fontSize: 14, fontWeight: '700', color: colors.text, flex: 1.4, textAlign: 'right' },
+  miniLogo: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, borderColor: colors.accentBorder, backgroundColor: '#FFFFFF' },
+  avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 20, fontWeight: '800', color: colors.onAccent },
   statusDot: { width: 11, height: 11, borderRadius: 6 },
   chip: { height: 36, paddingHorizontal: 18, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginLeft: 10 },
-  chipOn: { backgroundColor: colors.green },
+  chipOn: { backgroundColor: colors.accent },
   chipOff: { backgroundColor: colors.surface2, borderWidth: 1, borderColor: colors.border },
   chipText: { fontWeight: '800', fontSize: 13 },
   stat: { flex: 1, marginBottom: 0, alignItems: 'flex-start' },
   statValue: { fontSize: 28, fontWeight: '800', color: colors.text, marginTop: 8 },
   statUnit: { fontSize: 14, fontWeight: '600', color: colors.muted },
   mapFooter: { padding: 14, borderTopWidth: 1, borderTopColor: colors.border },
-  cta: { height: 56, borderRadius: 16, backgroundColor: colors.green, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
-  ctaText: { color: '#052E16', fontSize: 17, fontWeight: '800' },
+  cta: { height: 56, borderRadius: 16, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  ctaText: { color: colors.onAccent, fontSize: 17, fontWeight: '800' },
   hint: { textAlign: 'center', color: colors.muted, fontSize: 12, marginTop: 12 },
   warn: { color: colors.amber, fontSize: 13, marginTop: 10 },
-  err: { color: '#FCA5A5', fontSize: 13, marginTop: 10 },
+  err: { color: colors.errText, fontSize: 13, marginTop: 10 },
   signOut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 54, borderRadius: 16, borderWidth: 1.5, borderColor: 'rgba(239,68,68,0.45)', backgroundColor: 'rgba(239,68,68,0.1)', marginTop: 8 },
   mapTop: { position: 'absolute', top: 0, left: 0, right: 0, paddingTop: 48, paddingHorizontal: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  mapPill: { backgroundColor: 'rgba(16,24,20,0.92)', borderRadius: 22, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: colors.border },
-  roundBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(16,24,20,0.95)', borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  mapPill: { backgroundColor: colors.overlay, borderRadius: 22, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: colors.border },
+  roundBtn: { width: 46, height: 46, borderRadius: 23, backgroundColor: colors.overlay, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   mapSheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: colors.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 20, paddingBottom: 28, borderTopWidth: 1, borderColor: colors.border },
 });

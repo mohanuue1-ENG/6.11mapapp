@@ -1,12 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, LayoutChangeEvent, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors } from './theme';
+import { Colors, useTheme } from './theme';
 
 export type TabItem<T extends string> = { id: T; label: string; icon: keyof typeof Ionicons.glyphMap; activeIcon: keyof typeof Ionicons.glyphMap; badge?: number };
 
 // Floating pill with a highlight that slides to the chosen tab, like the switch on the public website.
 export default function TabBar<T extends string>({ tabs, value, onChange }: { tabs: TabItem<T>[]; value: T; onChange: (id: T) => void }) {
+  const { colors } = useTheme();
+  const s = useMemo(() => makeStyles(colors), [colors]);
   const [width, setWidth] = useState(0);
   const x = useRef(new Animated.Value(0)).current;
   const index = Math.max(0, tabs.findIndex((t) => t.id === value));
@@ -28,14 +30,14 @@ export default function TabBar<T extends string>({ tabs, value, onChange }: { ta
           return (
             <TouchableOpacity key={t.id} style={[s.tab, { width: slot || undefined, flex: slot ? undefined : 1 }]} onPress={() => onChange(t.id)} activeOpacity={0.8} accessibilityRole="tab" accessibilityState={{ selected: active }}>
               <View>
-                <Ionicons name={active ? t.activeIcon : t.icon} size={22} color={active ? '#052E16' : colors.muted} />
+                <Ionicons name={active ? t.activeIcon : t.icon} size={22} color={active ? colors.onAccent : colors.muted} />
                 {!!t.badge && (
                   <View style={s.badge}>
                     <Text style={s.badgeText}>{t.badge}</Text>
                   </View>
                 )}
               </View>
-              <Text style={[s.label, { color: active ? '#052E16' : colors.muted }]}>{t.label}</Text>
+              <Text style={[s.label, { color: active ? colors.onAccent : colors.muted }]}>{t.label}</Text>
             </TouchableOpacity>
           );
         })}
@@ -46,10 +48,10 @@ export default function TabBar<T extends string>({ tabs, value, onChange }: { ta
 
 const PAD = 6;
 
-const s = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   wrap: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingBottom: 16 },
-  bar: { flexDirection: 'row', backgroundColor: 'rgba(16,24,20,0.97)', borderRadius: 30, borderWidth: 1, borderColor: colors.border, padding: PAD, shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 10 },
-  slider: { position: 'absolute', top: PAD, bottom: PAD, left: PAD, borderRadius: 24, backgroundColor: colors.green },
+  bar: { flexDirection: 'row', backgroundColor: colors.overlay, borderRadius: 30, borderWidth: 1, borderColor: colors.border, padding: PAD, shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 10 },
+  slider: { position: 'absolute', top: PAD, bottom: PAD, left: PAD, borderRadius: 24, backgroundColor: colors.accent },
   tab: { height: 52, alignItems: 'center', justifyContent: 'center' },
   label: { fontSize: 10.5, fontWeight: '800', marginTop: 1 },
   badge: { position: 'absolute', top: -4, right: -9, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: colors.red, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },

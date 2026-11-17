@@ -3,7 +3,7 @@ import { StyleProp, Text, TouchableOpacity, View, ViewStyle } from 'react-native
 import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import * as Location from 'expo-location';
-import { colors } from './theme';
+import { Colors, useTheme } from './theme';
 
 // OpenStreetMap, satellite (Esri) and topographic data drawn with Leaflet, the same library as the company
 // website. None of these need a key. The page tells the app when it is really ready, so a position is never
@@ -11,12 +11,12 @@ import { colors } from './theme';
 const HTML = `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<style>html,body,#m{height:100%;margin:0;background:#0F1512}
+<style>:root{--a:#22C55E;--a2:rgba(34,197,94,.3)}html,body,#m{height:100%;margin:0;background:#0F1512}
 .leaflet-control-zoom{display:none}
 .dark-tiles{filter:invert(1) hue-rotate(180deg) brightness(.9) contrast(.95) saturate(.7)}
 .me{position:relative;width:22px;height:22px}
-.me i{position:absolute;inset:0;border-radius:50%;background:#22C55E;border:3px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.6)}
-.me b{position:absolute;inset:-10px;border-radius:50%;background:rgba(34,197,94,.3);animation:p 2s ease-out infinite}
+.me i{position:absolute;inset:0;border-radius:50%;background:var(--a);border:3px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.6)}
+.me b{position:absolute;inset:-10px;border-radius:50%;background:var(--a2);animation:p 2s ease-out infinite}
 @keyframes p{0%{transform:scale(.4);opacity:1}100%{transform:scale(1.4);opacity:0}}</style>
 </head><body><div id="m"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="window.ReactNativeWebView.postMessage('error')"></script>
@@ -24,6 +24,7 @@ const HTML = `<!doctype html><html><head><meta charset="utf-8">
 (function(){
   if(!window.L){window.ReactNativeWebView.postMessage('error');return}
   var post=function(t){window.ReactNativeWebView.postMessage(t)};
+  var accent='#22C55E';
   var map=L.map('m',{zoomControl:false,attributionControl:false}).setView([20,0],2);
   var OSM='https://tile.openstreetmap.org/{z}/{x}/{y}.png';
   var styles={
@@ -50,7 +51,7 @@ const HTML = `<!doctype html><html><head><meta charset="utf-8">
     last=[lat,lng];var p=last;
     if(!marker){
       marker=L.marker(p,{icon:L.divIcon({className:'',html:'<div class="me"><b></b><i></i></div>',iconSize:[22,22],iconAnchor:[11,11]}),zIndexOffset:1000}).addTo(map);
-      circle=L.circle(p,{radius:acc||20,color:'#22C55E',weight:1,fillOpacity:.1}).addTo(map);
+      circle=L.circle(p,{radius:acc||20,color:accent,weight:1,fillOpacity:.1}).addTo(map);
       map.setView(p,zoom,{animate:false});
     }else{
       marker.setLatLng(p);circle.setLatLng(p);circle.setRadius(acc||20);
@@ -62,6 +63,7 @@ const HTML = `<!doctype html><html><head><meta charset="utf-8">
     if(last){zoom=Math.max(map.getZoom(),17);map.setView(last,zoom,{animate:true})}
   };
   window.fit=function(){map.invalidateSize();if(last&&follow)map.setView(last,map.getZoom())};
+  window.setTheme=function(a,a2,bg){accent=a;var r=document.documentElement.style;r.setProperty('--a',a);r.setProperty('--a2',a2);document.body.style.background=bg;document.getElementById('m').style.background=bg;if(circle)circle.setStyle({color:a})};
   post('ready');
 })();
 </script></body></html>`;
@@ -76,7 +78,7 @@ const STYLES: { id: string; label: string; icon: keyof typeof Ionicons.glyphMap 
   { id: 'terrain', label: 'Terrain', icon: 'triangle-outline' },
 ];
 
-let rememberedStyle = 'dark';
+let rememberedStyle: string | null = null;
 
 const toPos = (loc: Location.LocationObject): MapPosition => {
   const sp = loc.coords.speed;
@@ -87,13 +89,15 @@ const toPos = (loc: Location.LocationObject): MapPosition => {
 // location sharing is on; nothing is uploaded from here.
 const MapView = forwardRef<MapHandle, { style?: StyleProp<ViewStyle>; interactive?: boolean; onPosition?: (p: MapPosition | null, error?: string) => void }>(
   function MapView({ style, interactive = true, onPosition }, ref) {
+    const { colors, mode } = useTheme();
+    const a2 = colors.isDark ? 'rgba(34,197,94,.3)' : 'rgba(10,132,245,.3)';
     const web = useRef<WebView>(null);
     const [pos, setPos] = useState<MapPosition | null>(null);
     const [ready, setReady] = useState(false);
     const [failed, setFailed] = useState(false);
     const [gpsNote, setGpsNote] = useState('');
     const [following, setFollowing] = useState(true);
-    const [mapStyle, setMapStyle] = useState(rememberedStyle);
+    const [mapStyle, setMapStyle] = useState(rememberedStyle ?? (mode === 'day' ? 'standard' : 'dark'));
     const [picker, setPicker] = useState(false);
 
     const recenter = () => {
@@ -159,6 +163,20 @@ const MapView = forwardRef<MapHandle, { style?: StyleProp<ViewStyle>; interactiv
       if (ready) web.current?.injectJavaScript(`window.setStyle&&window.setStyle(${JSON.stringify(mapStyle)});true;`);
     }, [ready, mapStyle]);
 
+    useEffect(() => {
+      if (ready) web.current?.injectJavaScript(`window.setTheme&&window.setTheme(${JSON.stringify(colors.accent)},${JSON.stringify(a2)},${JSON.stringify(colors.mapBg)});true;`);
+    }, [ready, colors, a2]);
+
+    // Switching day/night also switches the map between the light and dark street map (satellite and terrain stay).
+    const firstMode = useRef(true);
+    useEffect(() => {
+      if (firstMode.current) {
+        firstMode.current = false;
+        return;
+      }
+      setMapStyle((cur) => (cur === 'satellite' || cur === 'terrain' ? cur : mode === 'day' ? 'standard' : 'dark'));
+    }, [mode]);
+
     // If the map page does not report ready, the phone probably has no internet.
     useEffect(() => {
       if (ready) return undefined;
@@ -167,10 +185,10 @@ const MapView = forwardRef<MapHandle, { style?: StyleProp<ViewStyle>; interactiv
     }, [ready]);
 
     return (
-      <View style={[{ backgroundColor: '#0F1512' }, style]} pointerEvents={interactive ? 'auto' : 'none'}>
+      <View style={[{ backgroundColor: colors.mapBg }, style]} pointerEvents={interactive ? 'auto' : 'none'}>
         <WebView
           ref={web}
-          style={{ flex: 1, backgroundColor: '#0F1512' }}
+          style={{ flex: 1, backgroundColor: colors.mapBg }}
           originWhitelist={['*']}
           source={{ html: HTML, baseUrl: 'https://localhost/' }}
           onMessage={(e) => {
@@ -191,11 +209,11 @@ const MapView = forwardRef<MapHandle, { style?: StyleProp<ViewStyle>; interactiv
 
         {interactive && (
           <View style={{ position: 'absolute', right: 14, top: 110, alignItems: 'flex-end' }}>
-            <TouchableOpacity style={btn(picker)} onPress={() => setPicker(!picker)} accessibilityLabel="Map type" activeOpacity={0.85}>
-              <Ionicons name="layers-outline" size={22} color={picker ? '#052E16' : colors.text} />
+            <TouchableOpacity style={btn(colors, picker)} onPress={() => setPicker(!picker)} accessibilityLabel="Map type" activeOpacity={0.85}>
+              <Ionicons name="layers-outline" size={22} color={picker ? colors.onAccent : colors.text} />
             </TouchableOpacity>
             {picker && (
-              <View style={{ marginTop: 8, backgroundColor: 'rgba(16,24,20,0.97)', borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 6 }}>
+              <View style={{ marginTop: 8, backgroundColor: colors.overlay, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 6 }}>
                 {STYLES.map((st) => {
                   const on = st.id === mapStyle;
                   return (
@@ -206,24 +224,24 @@ const MapView = forwardRef<MapHandle, { style?: StyleProp<ViewStyle>; interactiv
                         setMapStyle(st.id);
                         setPicker(false);
                       }}
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, height: 42, borderRadius: 12, backgroundColor: on ? colors.green : 'transparent' }}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, height: 42, borderRadius: 12, backgroundColor: on ? colors.accent : 'transparent' }}
                     >
-                      <Ionicons name={st.icon} size={18} color={on ? '#052E16' : colors.muted} />
-                      <Text style={{ color: on ? '#052E16' : colors.text, fontWeight: '700', fontSize: 14 }}>{st.label}</Text>
+                      <Ionicons name={st.icon} size={18} color={on ? colors.onAccent : colors.muted} />
+                      <Text style={{ color: on ? colors.onAccent : colors.text, fontWeight: '700', fontSize: 14 }}>{st.label}</Text>
                     </TouchableOpacity>
                   );
                 })}
               </View>
             )}
-            <TouchableOpacity style={[btn(following), { marginTop: 10 }]} onPress={recenter} accessibilityLabel="My location" activeOpacity={0.85}>
-              <Ionicons name={following ? 'navigate' : 'navigate-outline'} size={22} color={following ? '#052E16' : colors.green} />
+            <TouchableOpacity style={[btn(colors, following), { marginTop: 10 }]} onPress={recenter} accessibilityLabel="My location" activeOpacity={0.85}>
+              <Ionicons name={following ? 'navigate' : 'navigate-outline'} size={22} color={following ? colors.onAccent : colors.accent} />
             </TouchableOpacity>
           </View>
         )}
 
         {(failed && !ready) || (ready && !pos && !!gpsNote) ? (
           <View pointerEvents="none" style={{ position: 'absolute', left: 16, right: 16, top: '40%', alignItems: 'center' }}>
-            <Text style={{ color: '#F3F4F6', textAlign: 'center', backgroundColor: 'rgba(16,24,20,0.92)', padding: 12, borderRadius: 12, overflow: 'hidden' }}>
+            <Text style={{ color: colors.text, textAlign: 'center', backgroundColor: colors.overlay, padding: 12, borderRadius: 12, overflow: 'hidden' }}>
               {failed && !ready ? 'The map could not load. Check the phone’s internet connection.' : gpsNote}
             </Text>
           </View>
@@ -233,15 +251,15 @@ const MapView = forwardRef<MapHandle, { style?: StyleProp<ViewStyle>; interactiv
   },
 );
 
-const btn = (active: boolean) => ({
+const btn = (colors: Colors, active: boolean) => ({
   width: 46,
   height: 46,
   borderRadius: 23,
   alignItems: 'center' as const,
   justifyContent: 'center' as const,
-  backgroundColor: active ? colors.green : 'rgba(16,24,20,0.95)',
+  backgroundColor: active ? colors.accent : colors.overlay,
   borderWidth: 1,
-  borderColor: active ? colors.green : colors.border,
+  borderColor: active ? colors.accent : colors.border,
 });
 
 export default MapView;

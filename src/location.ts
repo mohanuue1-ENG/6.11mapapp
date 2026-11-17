@@ -108,7 +108,7 @@ export async function startTracking(): Promise<TrackingMode> {
       showsBackgroundLocationIndicator: true,
       // Android keeps tracking alive only with a visible notification.
       foregroundService: {
-        notificationTitle: '6.11 Drive GPS',
+        notificationTitle: 'TRUKOVA',
         notificationBody: 'Sharing your truck location with your company.',
       },
     });

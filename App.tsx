@@ -1,21 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { hasSession, setSignedOutHandler } from './src/api';
 import LoginScreen from './src/screens/LoginScreen';
 import HomeScreen from './src/screens/HomeScreen';
-import { colors } from './src/theme';
+import { ThemeProvider, useTheme } from './src/theme';
 import Splash from './src/Splash';
 
-export default function App() {
+function Root({ themeReady }: { themeReady: boolean }) {
+  const { colors } = useTheme();
   const [state, setState] = useState<'loading' | 'signedOut' | 'signedIn'>('loading');
-
-  const [minTimeDone, setMinTimeDone] = useState(false);
-  useEffect(() => {
-    // Keep the first screen visible long enough to be seen.
-    const t = setTimeout(() => setMinTimeDone(true), 1800);
-    return () => clearTimeout(t);
-  }, []);
+  const [splashDone, setSplashDone] = useState(false);
 
   useEffect(() => {
     // The server ended the session (driver deactivated, token reuse): back to login.
@@ -25,12 +20,24 @@ export default function App() {
       .catch(() => setState('signedOut'));
   }, []);
 
+  const ready = splashDone && state !== 'loading' && themeReady;
+
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <StatusBar style="light" />
-      {(state === 'loading' || !minTimeDone) && <Splash />}
-      {minTimeDone && state === 'signedOut' && <LoginScreen onSignedIn={() => setState('signedIn')} />}
-      {minTimeDone && state === 'signedIn' && <HomeScreen onSignedOut={() => setState('signedOut')} />}
+    <View style={{ flex: 1, backgroundColor: ready ? colors.bg : '#FFFFFF' }}>
+      <StatusBar style={ready && colors.isDark ? 'light' : 'dark'} />
+      {!ready && <Splash onDone={() => setSplashDone(true)} />}
+      {ready && state === 'signedOut' && <LoginScreen onSignedIn={() => setState('signedIn')} />}
+      {ready && state === 'signedIn' && <HomeScreen onSignedOut={() => setState('signedOut')} />}
     </View>
+  );
+}
+
+export default function App() {
+  const [themeReady, setThemeReady] = useState(false);
+  const onReady = useCallback(() => setThemeReady(true), []);
+  return (
+    <ThemeProvider onReady={onReady}>
+      <Root themeReady={themeReady} />
+    </ThemeProvider>
   );
 }
