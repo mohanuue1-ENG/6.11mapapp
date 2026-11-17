@@ -1,12 +1,13 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TextInputProps, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { ApiError, checkSignupCode, login, registerDriver, requestSignupCode, verifyLogin } from '../api';
+import { ApiError, checkSignupCode, login, lookupDriverNumber, registerDriver, requestPasswordReset, requestSignupCode, resetPassword, verifyLogin } from '../api';
 import { Colors, useTheme } from '../theme';
 
-type Step = 'login' | 'code' | 'regPhone' | 'regCode' | 'regName' | 'regEmail' | 'regPassword';
-// Creating an account is a series of small forms, one question each.
-const REG_STEPS: Step[] = ['regPhone', 'regCode', 'regName', 'regEmail', 'regPassword'];
+type Step = 'login' | 'code' | 'regNumber' | 'regName' | 'regEmail' | 'regCode' | 'regPassword' | 'fgNumber' | 'fgEmail' | 'fgCode' | 'fgPassword';
+// Creating an account, and a forgotten password, are series of small forms, one question each.
+const REG_STEPS: Step[] = ['regNumber', 'regName', 'regEmail', 'regCode', 'regPassword'];
+const FG_STEPS: Step[] = ['fgNumber', 'fgEmail', 'fgCode', 'fgPassword'];
 type IconName = keyof typeof Ionicons.glyphMap;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -16,9 +17,9 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
   const s = useMemo(() => makeStyles(colors), [colors]);
 
   const [step, setStep] = useState<Step>('login');
+  const [driverNum, setDriverNum] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
   const [confirm, setConfirm] = useState('');
   const [code, setCode] = useState('');
@@ -29,12 +30,12 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [challengeId, setChallengeId] = useState('');
-  const [phoneHint, setPhoneHint] = useState('');
+  const [hint, setHint] = useState('');
   const [devCode, setDevCode] = useState('');
   const passwordRef = useRef<TextInput>(null);
   const confirmRef = useRef<TextInput>(null);
 
-  // `keepCode` is for the sign-up steps after the code step: the typed code is still needed at the end.
+  // `keepCode` is for the steps after the code step: the typed code is still needed at the end.
   const go = (next: Step, keepCode = false) => {
     setStep(next);
     setError('');
@@ -61,7 +62,7 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
     }
   };
 
-  // Sign in, step 1: email and password.
+  // ---------------------------------------------------------------- sign in (2 steps)
   const submitLogin = () =>
     run(async () => {
       const result = await login(email.trim(), password);
@@ -70,12 +71,11 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
         return;
       }
       setChallengeId(result.challengeId);
-      setPhoneHint(result.phoneHint);
+      setHint(result.hint);
       setDevCode(result.devCode ?? '');
       go('code');
     });
 
-  // Sign in, step 2: the texted code.
   const submitCode = () =>
     run(async () => {
       await verifyLogin(challengeId, code.trim(), remember);
@@ -95,57 +95,121 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
       setNotice('A new code was sent.');
     });
 
-  // New driver, step 1: the phone number the company put on the profile.
-  const submitPhone = () =>
+  // ---------------------------------------------------------------- create an account (5 steps)
+  // 1. the number the company set for this driver
+  const submitNumber = () =>
     run(async () => {
-      const result = await requestSignupCode(phone.trim());
-      setPhoneHint(result.phoneHint);
+      await lookupDriverNumber(driverNum.trim());
+      go('regName');
+    });
+
+  // 2. the name
+  const submitName = () => {
+    if (name.trim().length < 2) return setError('Enter your full name.');
+    go('regEmail');
+  };
+
+  // 3. the driver's own email; a code is emailed to it
+  const submitEmail = () => {
+    if (!EMAIL_RE.test(email.trim())) return setError('Enter a valid email address.');
+    return run(async () => {
+      const result = await requestSignupCode(driverNum.trim(), email.trim());
+      setHint(result.hint);
       setDevCode(result.devCode ?? '');
       go('regCode');
     });
+  };
 
   const resendSignupCode = () =>
     run(async () => {
-      const result = await requestSignupCode(phone.trim());
+      const result = await requestSignupCode(driverNum.trim(), email.trim());
       setDevCode(result.devCode ?? '');
       setCode('');
       setNotice('A new code was sent.');
     });
 
-  // New driver, step 2: the texted code is checked here, so a wrong one is found straight away.
+  // 4. the emailed code is checked here, so a wrong one is found straight away
   const submitRegCode = () =>
     run(async () => {
-      await checkSignupCode(phone.trim(), code.trim());
-      go('regName', true);
+      await checkSignupCode(email.trim(), code.trim());
+      go('regPassword', true);
     });
 
-  // Steps 3 and 4: name and email, checked on the phone.
-  const submitName = () => {
-    if (name.trim().length < 2) return setError('Enter your full name.');
-    go('regEmail', true);
-  };
-  const submitEmail = () => {
-    if (!EMAIL_RE.test(email.trim())) return setError('Enter a valid email address.');
-    go('regPassword', true);
-  };
-
-  // Step 5: the password, then the account is created with everything collected.
+  // 5. the password, then the account is created with everything collected
   const submitRegister = () => {
     if (password.length < 8) return setError('Your password must be at least 8 characters.');
     if (password !== confirm) return setError('The two passwords do not match.');
     return run(async () => {
       try {
-        await registerDriver({ phone: phone.trim(), code: code.trim(), name: name.trim(), email: email.trim(), password, remember });
+        await registerDriver({ driverNumber: driverNum.trim(), email: email.trim(), code: code.trim(), name: name.trim(), password, remember });
       } catch (err) {
         // Send the driver back to the step that needs fixing.
         if (err instanceof ApiError && err.code === 'INVALID_CODE') go('regCode');
-        else if (err instanceof ApiError && err.status === 409) go('regEmail', true);
+        else if (err instanceof ApiError && err.status === 409) go(/email/i.test(err.message) ? 'regEmail' : 'regNumber');
         throw err;
       }
       onSignedIn();
     });
   };
 
+  // ---------------------------------------------------------------- forgot password (4 steps)
+  // 1. the driver number (not checked yet: the answer must not tell strangers which numbers exist)
+  const submitFgNumber = () => {
+    if (!driverNum.trim()) return setError('Enter your driver number.');
+    go('fgEmail');
+  };
+
+  // 2. the email of the account; a code is emailed to it if the two match
+  const submitFgEmail = () => {
+    if (!EMAIL_RE.test(email.trim())) return setError('Enter a valid email address.');
+    return run(async () => {
+      const result = await requestPasswordReset(driverNum.trim(), email.trim());
+      setHint(result.hint);
+      setDevCode(result.devCode ?? '');
+      go('fgCode');
+    });
+  };
+
+  const resendResetCode = () =>
+    run(async () => {
+      const result = await requestPasswordReset(driverNum.trim(), email.trim());
+      setDevCode(result.devCode ?? '');
+      setCode('');
+      setNotice('If these details match an account, a new code was sent.');
+    });
+
+  // 3. the code
+  const submitFgCode = () =>
+    run(async () => {
+      await checkSignupCode(email.trim(), code.trim(), 'reset');
+      go('fgPassword', true);
+    });
+
+  // 4. the new password
+  const submitReset = () => {
+    if (password.length < 8) return setError('Your password must be at least 8 characters.');
+    if (password !== confirm) return setError('The two passwords do not match.');
+    return run(async () => {
+      try {
+        await resetPassword({ driverNumber: driverNum.trim(), email: email.trim(), code: code.trim(), newPassword: password });
+      } catch (err) {
+        if (err instanceof ApiError && err.code === 'INVALID_CODE') go('fgCode');
+        throw err;
+      }
+      setPassword('');
+      setConfirm('');
+      go('login');
+      setNotice('Your password was changed. Sign in with the new password.');
+    });
+  };
+
+  const startFlow = (next: Step) => {
+    setPassword('');
+    setConfirm('');
+    go(next);
+  };
+
+  // ---------------------------------------------------------------- pieces
   const field = (key: string, icon: IconName, props: TextInputProps & { inputRef?: React.RefObject<TextInput> }, right?: React.ReactNode) => {
     const { inputRef, ...rest } = props;
     return (
@@ -191,30 +255,68 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
     </TouchableOpacity>
   );
 
-  const codeField = field('code', 'chatbubble-ellipses-outline', {
+  const numberField = (onSubmit: () => void) =>
+    field('number', 'id-card-outline', {
+      placeholder: 'Driver number',
+      autoCapitalize: 'characters',
+      returnKeyType: 'go',
+      value: driverNum,
+      onChangeText: setDriverNum,
+      onSubmitEditing: onSubmit,
+      autoFocus: true,
+    });
+
+  const emailField = (onSubmit: () => void) =>
+    field('email', 'mail-outline', {
+      placeholder: 'Email (Gmail)',
+      autoComplete: 'email',
+      keyboardType: 'email-address',
+      returnKeyType: 'go',
+      value: email,
+      onChangeText: setEmail,
+      onSubmitEditing: onSubmit,
+      autoFocus: true,
+    });
+
+  const codeField = field('code', 'mail-open-outline', {
     placeholder: '6-digit code',
     keyboardType: 'number-pad',
     maxLength: 6,
     value: code,
     onChangeText: (v) => setCode(v.replace(/\D/g, '')),
-    autoComplete: 'sms-otp',
     textContentType: 'oneTimeCode',
   });
 
-  const devNote = !!devCode && (
-    <Text style={s.devNote}>Test mode (no text-message service yet): your code is {devCode}</Text>
+  const passwordFields = (onSubmit: () => void, label: string) => (
+    <>
+      {field(
+        'password',
+        'lock-closed-outline',
+        { inputRef: passwordRef, placeholder: 'Password (8+ characters)', secureTextEntry: !show, autoComplete: 'new-password', returnKeyType: 'next', value: password, onChangeText: setPassword, onSubmitEditing: () => confirmRef.current?.focus(), autoFocus: true },
+        eye,
+      )}
+      {field('confirm', 'lock-closed-outline', { inputRef: confirmRef, placeholder: 'Repeat password', secureTextEntry: !show, autoComplete: 'new-password', returnKeyType: 'go', value: confirm, onChangeText: setConfirm, onSubmitEditing: onSubmit })}
+      {button(label, onSubmit, !!password && !!confirm)}
+    </>
   );
+
+  const devNote = !!devCode && <Text style={s.devNote}>Test mode (email is not set up yet): your code is {devCode}</Text>;
 
   const titles: Record<Step, { title: string; subtitle: string }> = {
     login: { title: 'Driver Login', subtitle: 'Sign in with your email and password.' },
-    code: { title: 'Check your phone', subtitle: `We texted a 6-digit code to ${phoneHint}.` },
-    regPhone: { title: 'Create your account', subtitle: 'Enter the phone number your company gave for you. We will text you a code.' },
-    regCode: { title: 'Enter the code', subtitle: `We texted a 6-digit code to ${phoneHint}.` },
-    regName: { title: 'What is your name?', subtitle: 'Your full name, as your company knows you.' },
-    regEmail: { title: 'Your email', subtitle: 'You will sign in with this email.' },
-    regPassword: { title: 'Choose a password', subtitle: 'At least 8 characters.' },
+    code: { title: 'Check your email', subtitle: `We emailed a 6-digit code to ${hint}.` },
+    regNumber: { title: 'Create your account', subtitle: 'Enter the driver number your company gave you.' },
+    regName: { title: 'What is your name?', subtitle: 'Your full name.' },
+    regEmail: { title: 'Your email', subtitle: 'Enter your own Gmail or email. We will send you a code to confirm it.' },
+    regCode: { title: 'Enter the code', subtitle: `We emailed a 6-digit code to ${hint}. It may take a minute; check spam too.` },
+    regPassword: { title: 'Choose a password', subtitle: 'At least 8 characters. You will sign in with your email and this password.' },
+    fgNumber: { title: 'Forgot password', subtitle: 'Enter your driver number.' },
+    fgEmail: { title: 'Your email', subtitle: 'Enter the email you signed up with.' },
+    fgCode: { title: 'Enter the code', subtitle: `If these details match an account, we emailed a 6-digit code to ${hint}.` },
+    fgPassword: { title: 'New password', subtitle: 'Choose a new password, at least 8 characters.' },
   };
-  const regNumber = REG_STEPS.indexOf(step) + 1;
+  const group = REG_STEPS.includes(step) ? REG_STEPS : FG_STEPS.includes(step) ? FG_STEPS : [];
+  const stepNumber = group.indexOf(step) + 1;
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -231,12 +333,12 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
         </View>
 
         <View style={s.panel}>
-          {regNumber > 0 && (
-            <View style={s.progress} accessibilityLabel={`Step ${regNumber} of ${REG_STEPS.length}`}>
-              {REG_STEPS.map((k, i) => (
-                <View key={k} style={[s.dot, i < regNumber && s.dotOn]} />
+          {stepNumber > 0 && (
+            <View style={s.progress} accessibilityLabel={`Step ${stepNumber} of ${group.length}`}>
+              {group.map((k, i) => (
+                <View key={k} style={[s.dot, i < stepNumber && s.dotOn]} />
               ))}
-              <Text style={s.stepText}>Step {regNumber} of {REG_STEPS.length}</Text>
+              <Text style={s.stepText}>Step {stepNumber} of {group.length}</Text>
             </View>
           )}
           <Text style={s.title}>{titles[step].title}</Text>
@@ -269,8 +371,8 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
               )}
               {rememberRow}
               {button('Login', submitLogin, !!email && !!password)}
-              {link('New driver? Create your account', () => go('regPhone'))}
-              <Text style={s.help}>Forgot your password? Ask your company administrator to reset it.</Text>
+              {link('Forgot password?', () => startFlow('fgNumber'))}
+              {link('New driver? Create your account', () => startFlow('regNumber'))}
             </>
           )}
 
@@ -285,20 +387,28 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
             </>
           )}
 
-          {step === 'regPhone' && (
+          {step === 'regNumber' && (
             <>
-              {field('phone', 'call-outline', {
-                placeholder: 'Phone number, e.g. +252 61 234 5678',
-                keyboardType: 'phone-pad',
-                autoComplete: 'tel',
-                returnKeyType: 'go',
-                value: phone,
-                onChangeText: setPhone,
-                onSubmitEditing: submitPhone,
-              })}
-              {button('Send code', submitPhone, phone.replace(/\D/g, '').length >= 7)}
+              {numberField(submitNumber)}
+              {button('Continue', submitNumber, !!driverNum.trim())}
               {link('I already have an account', () => go('login'))}
-              <Text style={s.help}>Your company must have added your phone number to your driver profile first.</Text>
+              <Text style={s.help}>Your company gives you this number. Ask them if you do not have it.</Text>
+            </>
+          )}
+
+          {step === 'regName' && (
+            <>
+              {field('name', 'person-outline', { placeholder: 'Full name', autoCapitalize: 'words', returnKeyType: 'go', value: name, onChangeText: setName, onSubmitEditing: submitName, autoFocus: true })}
+              {button('Continue', submitName, name.trim().length >= 2)}
+              {link('Back', () => go('regNumber'))}
+            </>
+          )}
+
+          {step === 'regEmail' && (
+            <>
+              {emailField(submitEmail)}
+              {button('Send code', submitEmail, !!email.trim())}
+              {link('Back', () => go('regName'))}
             </>
           )}
 
@@ -308,47 +418,48 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
               {devNote}
               {button('Continue', submitRegCode, code.length === 6)}
               {link('Send a new code', resendSignupCode)}
-              {link('Back', () => go('regPhone'))}
-            </>
-          )}
-
-          {step === 'regName' && (
-            <>
-              {field('name', 'person-outline', { placeholder: 'Full name', autoCapitalize: 'words', returnKeyType: 'go', value: name, onChangeText: setName, onSubmitEditing: submitName, autoFocus: true })}
-              {button('Continue', submitName, name.trim().length >= 2)}
-              {link('Back', () => go('regCode', true))}
-            </>
-          )}
-
-          {step === 'regEmail' && (
-            <>
-              {field('email', 'mail-outline', {
-                placeholder: 'Email',
-                autoComplete: 'email',
-                keyboardType: 'email-address',
-                returnKeyType: 'go',
-                value: email,
-                onChangeText: setEmail,
-                onSubmitEditing: submitEmail,
-                autoFocus: true,
-              })}
-              {button('Continue', submitEmail, !!email.trim())}
-              {link('Back', () => go('regName', true))}
+              {link('Back', () => go('regEmail'))}
             </>
           )}
 
           {step === 'regPassword' && (
             <>
-              {field(
-                'password',
-                'lock-closed-outline',
-                { inputRef: passwordRef, placeholder: 'Password (8+ characters)', secureTextEntry: !show, autoComplete: 'new-password', returnKeyType: 'next', value: password, onChangeText: setPassword, onSubmitEditing: () => confirmRef.current?.focus(), autoFocus: true },
-                eye,
-              )}
-              {field('confirm', 'lock-closed-outline', { inputRef: confirmRef, placeholder: 'Repeat password', secureTextEntry: !show, autoComplete: 'new-password', returnKeyType: 'go', value: confirm, onChangeText: setConfirm, onSubmitEditing: submitRegister })}
+              {passwordFields(submitRegister, 'Create account')}
               {rememberRow}
-              {button('Create account', submitRegister, !!password && !!confirm)}
-              {link('Back', () => go('regEmail', true))}
+              {link('Back', () => go('regCode', true))}
+            </>
+          )}
+
+          {step === 'fgNumber' && (
+            <>
+              {numberField(submitFgNumber)}
+              {button('Continue', submitFgNumber, !!driverNum.trim())}
+              {link('Back to login', () => go('login'))}
+            </>
+          )}
+
+          {step === 'fgEmail' && (
+            <>
+              {emailField(submitFgEmail)}
+              {button('Send code', submitFgEmail, !!email.trim())}
+              {link('Back', () => go('fgNumber'))}
+            </>
+          )}
+
+          {step === 'fgCode' && (
+            <>
+              {codeField}
+              {devNote}
+              {button('Continue', submitFgCode, code.length === 6)}
+              {link('Send a new code', resendResetCode)}
+              {link('Back', () => go('fgEmail'))}
+            </>
+          )}
+
+          {step === 'fgPassword' && (
+            <>
+              {passwordFields(submitReset, 'Change password')}
+              {link('Back', () => go('fgCode', true))}
             </>
           )}
         </View>

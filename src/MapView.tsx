@@ -25,6 +25,7 @@ const HTML = `<!doctype html><html><head><meta charset="utf-8">
   if(!window.L){window.ReactNativeWebView.postMessage('error');return}
   var post=function(t){window.ReactNativeWebView.postMessage(t)};
   var accent='#22C55E';
+  var line=null,casing=null,startMark=null,endMark=null;
   var map=L.map('m',{zoomControl:false,attributionControl:false}).setView([20,0],2);
   var OSM='https://tile.openstreetmap.org/{z}/{x}/{y}.png';
   var styles={
@@ -63,7 +64,14 @@ const HTML = `<!doctype html><html><head><meta charset="utf-8">
     if(last){zoom=Math.max(map.getZoom(),17);map.setView(last,zoom,{animate:true})}
   };
   window.fit=function(){map.invalidateSize();if(last&&follow)map.setView(last,map.getZoom())};
-  window.setTheme=function(a,a2,bg){accent=a;var r=document.documentElement.style;r.setProperty('--a',a);r.setProperty('--a2',a2);document.body.style.background=bg;document.getElementById('m').style.background=bg;if(circle)circle.setStyle({color:a})};
+  // The trip's route: a line with a white edge, and a dot where the trip started. An empty list removes both.
+  window.setRoute=function(pts,fit){
+    if(!pts||!pts.length){if(line){map.removeLayer(line);map.removeLayer(casing);line=null;casing=null}if(startMark){map.removeLayer(startMark);startMark=null}if(endMark){map.removeLayer(endMark);endMark=null}return}
+    if(!line){casing=L.polyline(pts,{color:'#fff',weight:10,opacity:.9,lineJoin:'round',lineCap:'round'}).addTo(map);line=L.polyline(pts,{color:accent,weight:6,opacity:1,lineJoin:'round',lineCap:'round'}).addTo(map)}else{casing.setLatLngs(pts);line.setLatLngs(pts)}
+    if(!startMark){startMark=L.circleMarker(pts[0],{radius:8,color:'#fff',weight:3,fillColor:accent,fillOpacity:1}).addTo(map)}else{startMark.setLatLng(pts[0])}
+    if(fit){if(!endMark){endMark=L.circleMarker(pts[pts.length-1],{radius:8,color:'#fff',weight:3,fillColor:'#EF4444',fillOpacity:1}).addTo(map)}else{endMark.setLatLng(pts[pts.length-1])}if(pts.length>1){map.fitBounds(line.getBounds(),{padding:[60,60],maxZoom:17})}else{map.setView(pts[0],16)}}
+  };
+  window.setTheme=function(a,a2,bg){accent=a;if(line)line.setStyle({color:a});if(startMark)startMark.setStyle({fillColor:a});var r=document.documentElement.style;r.setProperty('--a',a);r.setProperty('--a2',a2);document.body.style.background=bg;document.getElementById('m').style.background=bg;if(circle)circle.setStyle({color:a})};
   post('ready');
 })();
 </script></body></html>`;
@@ -87,8 +95,8 @@ const toPos = (loc: Location.LocationObject): MapPosition => {
 
 // Live map of where the phone is. It reads the position itself, so it works whether or not
 // location sharing is on; nothing is uploaded from here.
-const MapView = forwardRef<MapHandle, { style?: StyleProp<ViewStyle>; interactive?: boolean; onPosition?: (p: MapPosition | null, error?: string) => void }>(
-  function MapView({ style, interactive = true, onPosition }, ref) {
+const MapView = forwardRef<MapHandle, { style?: StyleProp<ViewStyle>; interactive?: boolean; onPosition?: (p: MapPosition | null, error?: string) => void; route?: [number, number][]; fitRoute?: boolean }>(
+  function MapView({ style, interactive = true, onPosition, route, fitRoute = false }, ref) {
     const { colors, mode } = useTheme();
     const a2 = colors.isDark ? 'rgba(34,197,94,.3)' : 'rgba(10,132,245,.3)';
     const web = useRef<WebView>(null);
@@ -111,6 +119,8 @@ const MapView = forwardRef<MapHandle, { style?: StyleProp<ViewStyle>; interactiv
 
     // Read the phone position: a quick first fix, then continuous updates.
     useEffect(() => {
+      // A saved route (trip history) is only looked at: the phone's own position is not read or shown.
+      if (fitRoute) return undefined;
       let sub: Location.LocationSubscription | null = null;
       let cancelled = false;
       const publish = (loc: Location.LocationObject) => {
@@ -158,6 +168,17 @@ const MapView = forwardRef<MapHandle, { style?: StyleProp<ViewStyle>; interactiv
       const t = setInterval(send, 4000);
       return () => clearInterval(t);
     }, [pos, ready]);
+
+    // The route line follows the driver while a trip runs. A long trip is thinned out so the map stays smooth.
+    useEffect(() => {
+      if (!ready) return;
+      let pts = route ?? [];
+      if (pts.length > 1500) {
+        const step = Math.ceil(pts.length / 1500);
+        pts = pts.filter((_, i) => i % step === 0 || i === pts.length - 1);
+      }
+      web.current?.injectJavaScript(`window.setRoute&&window.setRoute(${JSON.stringify(pts)},${fitRoute ? 'true' : 'false'});true;`);
+    }, [ready, route, fitRoute]);
 
     useEffect(() => {
       if (ready) web.current?.injectJavaScript(`window.setStyle&&window.setStyle(${JSON.stringify(mapStyle)});true;`);
@@ -233,7 +254,7 @@ const MapView = forwardRef<MapHandle, { style?: StyleProp<ViewStyle>; interactiv
                 })}
               </View>
             )}
-            <TouchableOpacity style={[btn(colors, following), { marginTop: 10 }]} onPress={recenter} accessibilityLabel="My location" activeOpacity={0.85}>
+            <TouchableOpacity style={[btn(colors, following), { marginTop: 10 }, fitRoute && { display: 'none' }]} onPress={recenter} accessibilityLabel="My location" activeOpacity={0.85}>
               <Ionicons name={following ? 'navigate' : 'navigate-outline'} size={22} color={following ? colors.onAccent : colors.accent} />
             </TouchableOpacity>
           </View>

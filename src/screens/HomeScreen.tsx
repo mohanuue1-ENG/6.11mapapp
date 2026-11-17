@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, AppState, Image, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import NetInfo from '@react-native-community/netinfo';
-import { ApiError, DriverProfile, Trip, endTrip, getProfile, listTrips, logout, startTrip } from '../api';
+import { ApiError, DriverProfile, Trip, endTrip, getProfile, getTrip, listTrips, logout, startTrip } from '../api';
 import { clearQueue, pendingCount, readMeta, SyncMeta } from '../queue';
 import { flushQueue } from '../sync';
 import { currentPermission, getTripFix, setSharingSwitchedOff, sharingSwitchedOff, isTracking, requestTrackingPermission, startTracking, stopTracking, TrackingPermission } from '../location';
@@ -18,6 +18,15 @@ const ago = (iso: string | null) => {
   if (!iso) return 'never';
   const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
   return s < 45 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
+};
+
+// Metres between two [latitude, longitude] points.
+const metresBetween = (a: [number, number], b: [number, number]) => {
+  const rad = Math.PI / 180;
+  const dLat = (b[0] - a[0]) * rad;
+  const dLng = (b[1] - a[1]) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * rad) * Math.cos(b[0] * rad) * Math.sin(dLng / 2) ** 2;
+  return 12742000 * Math.asin(Math.sqrt(h));
 };
 
 const miles = (m: number | null | undefined) => (m == null ? null : m / 1609.344);
@@ -52,7 +61,46 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
   const [posError, setPosError] = useState('');
   const [mapOpen, setMapOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+
+  // A trip from the history, shown on the map with its route. `route` is null while it loads.
+  const [tripView, setTripView] = useState<{ trip: Trip; route: [number, number][] | null; error?: string } | null>(null);
+  const openTrip = async (t: Trip) => {
+    setTripView({ trip: t, route: null });
+    try {
+      const { route: saved } = await getTrip(t.id);
+      const pts = saved.map((p) => [p.latitude, p.longitude] as [number, number]);
+      setTripView((v) => (v && v.trip.id === t.id ? { ...v, route: pts } : v));
+    } catch {
+      setTripView((v) => (v && v.trip.id === t.id ? { ...v, route: [], error: 'Could not load this route. Check your connection.' } : v));
+    }
+  };
   const bigMap = useRef<MapHandle>(null);
+
+  // The route line. It starts when a trip starts, picks up what the server already recorded (for example after the
+  // app was reopened), and grows with every new position of the phone.
+  const [route, setRoute] = useState<[number, number][]>([]);
+  const tripId = profile?.activeTrip?.id ?? null;
+  useEffect(() => {
+    setRoute([]);
+    if (!tripId) return undefined;
+    let alive = true;
+    getTrip(tripId)
+      .then(({ route: saved }) => {
+        if (alive && saved.length) setRoute((now) => [...saved.map((p) => [p.latitude, p.longitude] as [number, number]), ...now]);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [tripId]);
+  useEffect(() => {
+    if (!tripId || !pos) return;
+    const here: [number, number] = [pos.latitude, pos.longitude];
+    setRoute((now) => {
+      const last = now[now.length - 1];
+      return last && metresBetween(last, here) < 5 ? now : [...now, here];
+    });
+  }, [tripId, pos?.latitude, pos?.longitude]);
 
   const refreshStatus = useCallback(async () => {
     setTracking(await isTracking());
@@ -263,7 +311,7 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
 
       <TouchableOpacity style={[s.card, { padding: 0, overflow: 'hidden' }]} activeOpacity={0.9} onPress={() => setMapOpen(true)} accessibilityLabel="Open the map">
         <View style={{ height: 190 }}>
-          <MapView interactive={false} style={StyleSheet.absoluteFill} onPosition={(p, e) => { setPos(p); setPosError(e ?? ''); }} />
+          <MapView interactive={false} route={route} style={StyleSheet.absoluteFill} onPosition={(p, e) => { setPos(p); setPosError(e ?? ''); }} />
         </View>
         <View style={[s.row, s.mapFooter]}>
           <View style={{ flex: 1 }}>
@@ -322,13 +370,14 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
         <View style={s.card}><Text style={s.sub}>No trips yet.</Text></View>
       ) : (
         recent.map((t) => (
-          <View key={t.id} style={s.card}>
+          <TouchableOpacity key={t.id} style={s.card} activeOpacity={0.8} onPress={() => openTrip(t)} accessibilityRole="button" accessibilityLabel="Show this trip on the map">
             <View style={s.row}>
               <Text style={s.cardTitle}>{new Date(t.startedAt).toLocaleDateString()}</Text>
               <Text style={{ color: t.status === 'ACTIVE' ? colors.accent : colors.muted, fontWeight: '700', fontSize: 12 }}>{t.status === 'ACTIVE' ? 'LIVE' : 'COMPLETED'}</Text>
             </View>
             <Text style={s.sub}>Truck #{t.truck.truckNumber} · {tripLine(t)}</Text>
-          </View>
+            <Text style={[s.sub, { color: colors.accent, fontWeight: '700', marginTop: 8 }]}>View route on map ›</Text>
+          </TouchableOpacity>
         ))
       )}
     </ScrollView>
@@ -410,6 +459,53 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
     </Modal>
   );
 
+  // ---------- A trip from the history, on the map ----------
+  const tripSheet = (
+    <Modal visible={!!tripView} animationType="slide" onRequestClose={() => setTripView(null)} statusBarTranslucent>
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        {!!tripView?.route?.length && <MapView fitRoute route={tripView.route} style={StyleSheet.absoluteFill} />}
+        <View style={s.mapTop}>
+          <View style={s.mapPill}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{tripView ? new Date(tripView.trip.startedAt).toLocaleDateString() : ''}</Text>
+          </View>
+          <TouchableOpacity style={s.roundBtn} onPress={() => setTripView(null)} accessibilityLabel="Close trip">
+            <Ionicons name="close" size={22} color={colors.text} />
+          </TouchableOpacity>
+        </View>
+        {!!tripView && (
+          <View style={s.mapSheet}>
+            <Text style={s.cardTitle}>Truck #{tripView.trip.truck.truckNumber}</Text>
+            <View style={[s.row, { marginTop: 12, alignItems: 'flex-start' }]}>
+              <View>
+                <Text style={s.label}>DURATION</Text>
+                <Text style={s.cardTitle}>{tripView.trip.status === 'ACTIVE' ? 'In progress' : `${Math.round((tripView.trip.durationSeconds ?? 0) / 60)} min`}</Text>
+              </View>
+              <View>
+                <Text style={s.label}>DISTANCE</Text>
+                <Text style={s.cardTitle}>{tripView.trip.distanceMeters == null ? '–' : `${miles(tripView.trip.distanceMeters)!.toFixed(1)} mi`}</Text>
+              </View>
+              <View>
+                <Text style={s.label}>STARTED</Text>
+                <Text style={s.cardTitle}>{new Date(tripView.trip.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+              </View>
+              <View>
+                <Text style={s.label}>ENDED</Text>
+                <Text style={s.cardTitle}>{tripView.trip.endedAt ? new Date(tripView.trip.endedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '–'}</Text>
+              </View>
+            </View>
+            <Text style={[s.sub, { marginTop: 14 }]}>
+              {tripView.route === null
+                ? 'Loading the route…'
+                : tripView.route.length === 0
+                  ? tripView.error ?? 'No route points were recorded for this trip.'
+                  : 'Blue line: where you drove. Blue dot: start. Red dot: end.'}
+            </Text>
+          </View>
+        )}
+      </View>
+    </Modal>
+  );
+
   const tabs: TabItem<Tab>[] = [
     { id: 'home', label: 'Home', icon: 'home-outline', activeIcon: 'home' },
     { id: 'trips', label: 'Trips', icon: 'git-branch-outline', activeIcon: 'git-branch' },
@@ -432,10 +528,11 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
       <View style={{ flex: 1 }}>{tab === 'home' ? homeTab : tab === 'trips' ? tripsTab : alertsTab}</View>
       <TabBar tabs={tabs} value={tab} onChange={setTab} />
       {profileSheet}
+      {tripSheet}
 
       <Modal visible={mapOpen} animationType="slide" onRequestClose={() => setMapOpen(false)} statusBarTranslucent>
         <View style={{ flex: 1, backgroundColor: colors.bg }}>
-          <MapView ref={bigMap} style={StyleSheet.absoluteFill} onPosition={(p, e) => { setPos(p); setPosError(e ?? ''); }} />
+          <MapView ref={bigMap} route={route} style={StyleSheet.absoluteFill} onPosition={(p, e) => { setPos(p); setPosError(e ?? ''); }} />
           <View style={s.mapTop}>
             <View style={s.mapPill}><Logo size={26} /></View>
             <TouchableOpacity style={s.roundBtn} onPress={() => setMapOpen(false)} accessibilityLabel="Close map"><Ionicons name="close" size={22} color={colors.text} /></TouchableOpacity>

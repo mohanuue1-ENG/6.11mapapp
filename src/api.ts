@@ -117,7 +117,7 @@ export async function call(path: string, init: RequestInit = {}) {
 export type SessionUser = { id: string; name: string };
 export type LoginResult =
   | { kind: 'signedIn'; user: SessionUser }
-  | { kind: 'verify'; challengeId: string; phoneHint: string; devCode?: string };
+  | { kind: 'verify'; challengeId: string; hint: string; devCode?: string };
 
 // Keeps the session and, when the server sent one, the "remember this phone" token. Signing in without ticking
 // "remember" forgets any older token.
@@ -131,7 +131,7 @@ async function startSession(data: any, remember: boolean): Promise<SessionUser> 
   return data.user;
 }
 
-// Step 1 of signing in. A driver is then asked for the code texted to their phone, unless this phone was
+// Step 1 of signing in. A driver is then asked for the code emailed to them, unless this phone was
 // verified and remembered within the last 30 days.
 export async function login(email: string, password: string): Promise<LoginResult> {
   const deviceToken = await SecureStore.getItemAsync(DEVICE_KEY);
@@ -141,30 +141,45 @@ export async function login(email: string, password: string): Promise<LoginResul
     body: JSON.stringify({ email, password, ...(deviceToken ? { deviceToken } : {}) }),
   });
   if (data.verificationRequired) {
-    return { kind: 'verify', challengeId: data.challengeId, phoneHint: data.phoneHint, devCode: data.devCode };
+    return { kind: 'verify', challengeId: data.challengeId, hint: data.hint, devCode: data.devCode };
   }
   return { kind: 'signedIn', user: await startSession(data, true) };
 }
 
-// Step 2: the texted code. With `remember`, this phone skips the code for the next 30 days.
+// Step 2: the emailed code. With `remember`, this phone skips the code for the next 30 days.
 export async function verifyLogin(challengeId: string, code: string, remember: boolean): Promise<SessionUser> {
   const data = await raw('/auth/login/verify', { method: 'POST', auth: false, body: JSON.stringify({ challengeId, code, remember }) });
   return startSession(data, remember);
 }
 
-// Creating an account: the driver gives the phone number their company put on their profile and a code is texted.
-export async function requestSignupCode(phone: string): Promise<{ phoneHint: string; devCode?: string }> {
-  return raw('/auth/driver/request-code', { method: 'POST', auth: false, body: JSON.stringify({ phone }) });
+// Creating an account, step 1: is this a driver number a company has set up?
+export async function lookupDriverNumber(driverNumber: string): Promise<void> {
+  await raw('/auth/driver/lookup', { method: 'POST', auth: false, body: JSON.stringify({ driverNumber }) });
 }
 
-// Checks the typed code without using it up, so a wrong code is found on the code step.
-export async function checkSignupCode(phone: string, code: string): Promise<void> {
-  await raw('/auth/driver/check-code', { method: 'POST', auth: false, body: JSON.stringify({ phone, code }) });
+// Step 3: the driver's own email; a code is emailed to it.
+export async function requestSignupCode(driverNumber: string, email: string): Promise<{ hint: string; devCode?: string }> {
+  return raw('/auth/driver/request-code', { method: 'POST', auth: false, body: JSON.stringify({ driverNumber, email }) });
 }
 
-export async function registerDriver(input: { phone: string; code: string; name: string; email: string; password: string; remember: boolean }): Promise<SessionUser> {
+// Step 4: checks the typed code without using it up, so a wrong code is found on the code step.
+export async function checkSignupCode(email: string, code: string, purpose: 'register' | 'reset' = 'register'): Promise<void> {
+  await raw('/auth/driver/check-code', { method: 'POST', auth: false, body: JSON.stringify({ email, code, purpose }) });
+}
+
+// Step 5: the account is created with everything collected.
+export async function registerDriver(input: { driverNumber: string; email: string; code: string; name: string; password: string; remember: boolean }): Promise<SessionUser> {
   const data = await raw('/auth/driver/register', { method: 'POST', auth: false, body: JSON.stringify(input) });
   return startSession(data, input.remember);
+}
+
+// Forgot password: the driver number and the account's email get a code; the code and a new password finish it.
+export async function requestPasswordReset(driverNumber: string, email: string): Promise<{ hint: string; devCode?: string }> {
+  return raw('/auth/driver/forgot/request', { method: 'POST', auth: false, body: JSON.stringify({ driverNumber, email }) });
+}
+
+export async function resetPassword(input: { driverNumber: string; email: string; code: string; newPassword: string }): Promise<void> {
+  await raw('/auth/driver/forgot/reset', { method: 'POST', auth: false, body: JSON.stringify(input) });
 }
 
 export async function logout() {
@@ -189,6 +204,9 @@ export type GpsFix = { latitude: number; longitude: number; gpsTimestamp: string
 
 export const startTrip = (fix: GpsFix): Promise<{ trip: Trip }> => call('/trips/start', { method: 'POST', body: JSON.stringify(fix) });
 export const endTrip = (id: string, fix: GpsFix): Promise<{ trip: Trip }> => call(`/trips/${id}/end`, { method: 'POST', body: JSON.stringify(fix) });
+export type RoutePoint = { latitude: number; longitude: number; speedMps: number | null; gpsTimestamp: string };
+// One trip with the points of its route recorded so far.
+export const getTrip = (id: string): Promise<{ trip: Trip; route: RoutePoint[] }> => call(`/trips/${id}`);
 export const listTrips = (limit = 10): Promise<{ trips: Trip[] }> => call(`/trips?limit=${limit}`);
 
 export const getProfile = (): Promise<DriverProfile> => call('/driver/me');
