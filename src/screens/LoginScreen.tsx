@@ -1,14 +1,18 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TextInputProps, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TextInputProps, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { ApiError, checkSignupCode, login, lookupDriverNumber, registerDriver, requestPasswordReset, requestSignupCode, resetPassword, verifyLogin } from '../api';
+import { ApiError, checkSignupCode, login, lookupDriverPhone, registerDriver, requestPasswordReset, requestSignupCode, resetPassword, verifyLogin } from '../api';
 import { Colors, useTheme } from '../theme';
+import { COUNTRIES, Country, flag, joinPhone } from '../countries';
 
 type Step = 'login' | 'code' | 'regNumber' | 'regName' | 'regEmail' | 'regCode' | 'regPassword' | 'fgNumber' | 'fgEmail' | 'fgCode' | 'fgPassword';
 // Creating an account, and a forgotten password, are series of small forms, one question each.
 const REG_STEPS: Step[] = ['regNumber', 'regName', 'regEmail', 'regCode', 'regPassword'];
 const FG_STEPS: Step[] = ['fgNumber', 'fgEmail', 'fgCode', 'fgPassword'];
 type IconName = keyof typeof Ionicons.glyphMap;
+
+// The country picked last time is kept for the next time the form opens.
+let lastCountry: Country = COUNTRIES.find((c) => c.code === 'US')!;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -17,7 +21,11 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
   const s = useMemo(() => makeStyles(colors), [colors]);
 
   const [step, setStep] = useState<Step>('login');
-  const [driverNum, setDriverNum] = useState('');
+  const [phone, setPhone] = useState('');
+  const [country, setCountry] = useState<Country>(lastCountry);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const fullPhone = joinPhone(country.dial, phone);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -99,7 +107,7 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
   // 1. the number the company set for this driver
   const submitNumber = () =>
     run(async () => {
-      await lookupDriverNumber(driverNum.trim());
+      await lookupDriverPhone(fullPhone);
       go('regName');
     });
 
@@ -113,7 +121,7 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
   const submitEmail = () => {
     if (!EMAIL_RE.test(email.trim())) return setError('Enter a valid email address.');
     return run(async () => {
-      const result = await requestSignupCode(driverNum.trim(), email.trim());
+      const result = await requestSignupCode(fullPhone, email.trim());
       setHint(result.hint);
       setDevCode(result.devCode ?? '');
       go('regCode');
@@ -122,7 +130,7 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
 
   const resendSignupCode = () =>
     run(async () => {
-      const result = await requestSignupCode(driverNum.trim(), email.trim());
+      const result = await requestSignupCode(fullPhone, email.trim());
       setDevCode(result.devCode ?? '');
       setCode('');
       setNotice('A new code was sent.');
@@ -141,7 +149,7 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
     if (password !== confirm) return setError('The two passwords do not match.');
     return run(async () => {
       try {
-        await registerDriver({ driverNumber: driverNum.trim(), email: email.trim(), code: code.trim(), name: name.trim(), password, remember });
+        await registerDriver({ phone: fullPhone, email: email.trim(), code: code.trim(), name: name.trim(), password, remember });
       } catch (err) {
         // Send the driver back to the step that needs fixing.
         if (err instanceof ApiError && err.code === 'INVALID_CODE') go('regCode');
@@ -155,7 +163,7 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
   // ---------------------------------------------------------------- forgot password (4 steps)
   // 1. the driver number (not checked yet: the answer must not tell strangers which numbers exist)
   const submitFgNumber = () => {
-    if (!driverNum.trim()) return setError('Enter your driver number.');
+    if (phone.replace(/\D/g, '').length < 5) return setError('Enter your phone number.');
     go('fgEmail');
   };
 
@@ -163,7 +171,7 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
   const submitFgEmail = () => {
     if (!EMAIL_RE.test(email.trim())) return setError('Enter a valid email address.');
     return run(async () => {
-      const result = await requestPasswordReset(driverNum.trim(), email.trim());
+      const result = await requestPasswordReset(fullPhone, email.trim());
       setHint(result.hint);
       setDevCode(result.devCode ?? '');
       go('fgCode');
@@ -172,7 +180,7 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
 
   const resendResetCode = () =>
     run(async () => {
-      const result = await requestPasswordReset(driverNum.trim(), email.trim());
+      const result = await requestPasswordReset(fullPhone, email.trim());
       setDevCode(result.devCode ?? '');
       setCode('');
       setNotice('If these details match an account, a new code was sent.');
@@ -191,7 +199,7 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
     if (password !== confirm) return setError('The two passwords do not match.');
     return run(async () => {
       try {
-        await resetPassword({ driverNumber: driverNum.trim(), email: email.trim(), code: code.trim(), newPassword: password });
+        await resetPassword({ phone: fullPhone, email: email.trim(), code: code.trim(), newPassword: password });
       } catch (err) {
         if (err instanceof ApiError && err.code === 'INVALID_CODE') go('fgCode');
         throw err;
@@ -255,16 +263,33 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
     </TouchableOpacity>
   );
 
-  const numberField = (onSubmit: () => void) =>
-    field('number', 'id-card-outline', {
-      placeholder: 'Driver number',
-      autoCapitalize: 'characters',
-      returnKeyType: 'go',
-      value: driverNum,
-      onChangeText: setDriverNum,
-      onSubmitEditing: onSubmit,
-      autoFocus: true,
-    });
+  // The phone number: a country-code picker, then the number.
+  const numberField = (onSubmit: () => void) => (
+    <View style={[s.field, focus === 'phone' && s.fieldFocus, { paddingLeft: 8 }]}>
+      <TouchableOpacity style={s.dialBtn} onPress={() => setPickerOpen(true)} accessibilityLabel={`Country code ${country.name} plus ${country.dial}. Tap to change.`}>
+        <Text style={s.dialText}>{flag(country.code)} +{country.dial}</Text>
+        <Ionicons name="chevron-down" size={16} color={colors.muted} />
+      </TouchableOpacity>
+      <TextInput
+        style={s.input}
+        placeholder="Phone number"
+        placeholderTextColor={colors.placeholder}
+        keyboardType="phone-pad"
+        autoComplete="tel"
+        returnKeyType="go"
+        value={phone}
+        onChangeText={(v) => setPhone(v.replace(/[^\d\s-]/g, ''))}
+        onFocus={() => setFocus('phone')}
+        onBlur={() => setFocus('')}
+        onSubmitEditing={onSubmit}
+      />
+    </View>
+  );
+
+  const shownCountries = useMemo(() => {
+    const q = query.trim().toLowerCase().replace(/^\+/, '');
+    return q ? COUNTRIES.filter((c) => c.name.toLowerCase().includes(q) || c.dial.startsWith(q) || c.code.toLowerCase() === q) : COUNTRIES;
+  }, [query]);
 
   const emailField = (onSubmit: () => void) =>
     field('email', 'mail-outline', {
@@ -305,12 +330,12 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
   const titles: Record<Step, { title: string; subtitle: string }> = {
     login: { title: 'Driver Login', subtitle: 'Sign in with your email and password.' },
     code: { title: 'Check your email', subtitle: `We emailed a 6-digit code to ${hint}.` },
-    regNumber: { title: 'Create your account', subtitle: 'Enter the driver number your company gave you.' },
+    regNumber: { title: 'Create your account', subtitle: 'Choose your country and enter the phone number your company added for you.' },
     regName: { title: 'What is your name?', subtitle: 'Your full name.' },
     regEmail: { title: 'Your email', subtitle: 'Enter your own Gmail or email. We will send you a code to confirm it.' },
     regCode: { title: 'Enter the code', subtitle: `We emailed a 6-digit code to ${hint}. It may take a minute; check spam too.` },
     regPassword: { title: 'Choose a password', subtitle: 'At least 8 characters. You will sign in with your email and this password.' },
-    fgNumber: { title: 'Forgot password', subtitle: 'Enter your driver number.' },
+    fgNumber: { title: 'Forgot password', subtitle: 'Choose your country and enter the phone number your company added for you.' },
     fgEmail: { title: 'Your email', subtitle: 'Enter the email you signed up with.' },
     fgCode: { title: 'Enter the code', subtitle: `If these details match an account, we emailed a 6-digit code to ${hint}.` },
     fgPassword: { title: 'New password', subtitle: 'Choose a new password, at least 8 characters.' },
@@ -390,9 +415,9 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
           {step === 'regNumber' && (
             <>
               {numberField(submitNumber)}
-              {button('Continue', submitNumber, !!driverNum.trim())}
+              {button('Continue', submitNumber, phone.replace(/\D/g, '').length >= 5)}
               {link('I already have an account', () => go('login'))}
-              <Text style={s.help}>Your company gives you this number. Ask them if you do not have it.</Text>
+              <Text style={s.help}>Your company must have added your phone number first. Ask them if you are not sure.</Text>
             </>
           )}
 
@@ -433,7 +458,7 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
           {step === 'fgNumber' && (
             <>
               {numberField(submitFgNumber)}
-              {button('Continue', submitFgNumber, !!driverNum.trim())}
+              {button('Continue', submitFgNumber, phone.replace(/\D/g, '').length >= 5)}
               {link('Back to login', () => go('login'))}
             </>
           )}
@@ -464,6 +489,43 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
           )}
         </View>
       </ScrollView>
+
+      <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)} statusBarTranslucent>
+        <View style={s.pickerBackdrop}>
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setPickerOpen(false)} accessibilityLabel="Close country list" />
+          <View style={s.pickerSheet}>
+            <View style={s.grab} />
+            <Text style={s.pickerTitle}>Country code</Text>
+            <View style={[s.field, { marginHorizontal: 16, marginBottom: 8 }]}>
+              <Ionicons name="search-outline" size={18} color={colors.muted} />
+              <TextInput style={s.input} placeholder="Search country or code" placeholderTextColor={colors.placeholder} value={query} onChangeText={setQuery} autoCorrect={false} />
+            </View>
+            <FlatList
+              data={shownCountries}
+              keyExtractor={(c) => c.code}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item }) => {
+                const on = item.code === country.code;
+                return (
+                  <TouchableOpacity
+                    style={[s.countryRow, on && { backgroundColor: colors.surface2 }]}
+                    onPress={() => {
+                      lastCountry = item;
+                      setCountry(item);
+                      setPickerOpen(false);
+                      setQuery('');
+                    }}
+                  >
+                    <Text style={s.countryFlag}>{flag(item.code)}</Text>
+                    <Text style={[s.countryName, on && { fontWeight: '800' }]}>{item.name}</Text>
+                    <Text style={s.countryDial}>+{item.dial}</Text>
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -487,6 +549,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   rememberRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6, marginTop: -2 },
   rememberText: { color: colors.text, fontSize: 14, fontWeight: '600' },
   link: { color: colors.accent, fontSize: 14.5, fontWeight: '700' },
+  dialBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 38, paddingHorizontal: 8, borderRadius: 10, backgroundColor: colors.surface2 },
+  dialText: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  pickerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  pickerSheet: { backgroundColor: colors.bg, borderTopLeftRadius: 26, borderTopRightRadius: 26, maxHeight: '75%', paddingBottom: 20, borderTopWidth: 1, borderColor: colors.border },
+  grab: { alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: colors.border, marginTop: 10, marginBottom: 10 },
+  pickerTitle: { color: colors.text, fontSize: 17, fontWeight: '800', marginHorizontal: 16, marginBottom: 10 },
+  countryRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 12 },
+  countryFlag: { fontSize: 22 },
+  countryName: { flex: 1, color: colors.text, fontSize: 15 },
+  countryDial: { color: colors.muted, fontSize: 14, fontWeight: '700' },
   progress: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 },
   dot: { flex: 1, height: 4, borderRadius: 2, backgroundColor: colors.border },
   dotOn: { backgroundColor: colors.accent },

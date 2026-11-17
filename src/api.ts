@@ -152,14 +152,14 @@ export async function verifyLogin(challengeId: string, code: string, remember: b
   return startSession(data, remember);
 }
 
-// Creating an account, step 1: is this a driver number a company has set up?
-export async function lookupDriverNumber(driverNumber: string): Promise<void> {
-  await raw('/auth/driver/lookup', { method: 'POST', auth: false, body: JSON.stringify({ driverNumber }) });
+// Creating an account, step 1: is this a phone number a company has set up for a driver?
+export async function lookupDriverPhone(phone: string): Promise<void> {
+  await raw('/auth/driver/lookup', { method: 'POST', auth: false, body: JSON.stringify({ phone }) });
 }
 
 // Step 3: the driver's own email; a code is emailed to it.
-export async function requestSignupCode(driverNumber: string, email: string): Promise<{ hint: string; devCode?: string }> {
-  return raw('/auth/driver/request-code', { method: 'POST', auth: false, body: JSON.stringify({ driverNumber, email }) });
+export async function requestSignupCode(phone: string, email: string): Promise<{ hint: string; devCode?: string }> {
+  return raw('/auth/driver/request-code', { method: 'POST', auth: false, body: JSON.stringify({ phone, email }) });
 }
 
 // Step 4: checks the typed code without using it up, so a wrong code is found on the code step.
@@ -168,17 +168,17 @@ export async function checkSignupCode(email: string, code: string, purpose: 'reg
 }
 
 // Step 5: the account is created with everything collected.
-export async function registerDriver(input: { driverNumber: string; email: string; code: string; name: string; password: string; remember: boolean }): Promise<SessionUser> {
+export async function registerDriver(input: { phone: string; email: string; code: string; name: string; password: string; remember: boolean }): Promise<SessionUser> {
   const data = await raw('/auth/driver/register', { method: 'POST', auth: false, body: JSON.stringify(input) });
   return startSession(data, input.remember);
 }
 
-// Forgot password: the driver number and the account's email get a code; the code and a new password finish it.
-export async function requestPasswordReset(driverNumber: string, email: string): Promise<{ hint: string; devCode?: string }> {
-  return raw('/auth/driver/forgot/request', { method: 'POST', auth: false, body: JSON.stringify({ driverNumber, email }) });
+// Forgot password: the phone number and the account's email get a code; the code and a new password finish it.
+export async function requestPasswordReset(phone: string, email: string): Promise<{ hint: string; devCode?: string }> {
+  return raw('/auth/driver/forgot/request', { method: 'POST', auth: false, body: JSON.stringify({ phone, email }) });
 }
 
-export async function resetPassword(input: { driverNumber: string; email: string; code: string; newPassword: string }): Promise<void> {
+export async function resetPassword(input: { phone: string; email: string; code: string; newPassword: string }): Promise<void> {
   await raw('/auth/driver/forgot/reset', { method: 'POST', auth: false, body: JSON.stringify(input) });
 }
 
