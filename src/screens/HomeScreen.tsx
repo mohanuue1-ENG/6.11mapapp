@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, AppState, Image, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import NetInfo from '@react-native-community/netinfo';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiError, DriverProfile, Trip, endTrip, getProfile, getTrip, listTrips, logout, startTrip } from '../api';
 import { clearQueue, pendingCount, readMeta, SyncMeta } from '../queue';
 import { flushQueue } from '../sync';
@@ -11,6 +12,7 @@ import MapView, { MapHandle, MapPosition } from '../MapView';
 import Logo from '../Logo';
 import TabBar, { TabItem } from '../TabBar';
 
+const PROFILE_KEY = 'trukova.profile';
 type Tab = 'home' | 'trips' | 'alerts';
 type AlertItem = { id: string; level: 'error' | 'warn' | 'info' | 'ok'; title: string; text: string };
 
@@ -111,11 +113,22 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
 
   const loadProfile = useCallback(async () => {
     try {
-      setProfile(await getProfile());
+      const fresh = await getProfile();
+      setProfile(fresh);
       setProfileError('');
+      AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(fresh)).catch(() => {});
       listTrips(20).then((r) => setRecent(r.trips)).catch(() => {});
     } catch (err) {
-      if (!(err instanceof ApiError && err.status === 401)) setProfileError('Could not load your truck. Check your connection.');
+      if (!(err instanceof ApiError && err.status === 401)) {
+        setProfileError('Could not load your truck. Check your connection.');
+        // Offline: show what was saved the last time it loaded instead of blanks.
+        const saved = await AsyncStorage.getItem(PROFILE_KEY).catch(() => null);
+        if (saved) {
+          try {
+            setProfile((now) => now ?? (JSON.parse(saved) as DriverProfile));
+          } catch {}
+        }
+      }
     }
   }, []);
 
@@ -244,6 +257,7 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
           await setSharingSwitchedOff(false);
           await logout();
           await clearQueue();
+          await AsyncStorage.removeItem(PROFILE_KEY).catch(() => {});
           onSignedOut();
         },
       },
@@ -277,6 +291,12 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
       <View style={{ marginBottom: 18 }}>
         <Text style={s.hello}>{profile ? `Hello, ${firstName}` : ' '}</Text>
         <Text style={s.sub}>{truckShort}{profile ? ` · ${profile.company.name}` : ''}</Text>
+        {(!online || !!profileError) && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 6, marginTop: 8, backgroundColor: colors.amber + '33', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+            <Ionicons name="cloud-offline-outline" size={14} color={colors.amber} />
+            <Text style={{ color: colors.amber, fontSize: 12, fontWeight: '600' }}>Offline</Text>
+          </View>
+        )}
       </View>
 
       <View style={s.card}>
