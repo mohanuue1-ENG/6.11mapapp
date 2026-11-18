@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, Image, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, AppState, Image, Linking, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ApiError, DriverProfile, Trip, endTrip, getProfile, getTrip, listTrips, logout, startTrip } from '../api';
+import { ApiError, DriverProfile, Trip, deleteAccount, endTrip, getProfile, getTrip, listTrips, logout, startTrip } from '../api';
 import { clearQueue, pendingCount, readMeta, SyncMeta } from '../queue';
 import { flushQueue } from '../sync';
 import { currentPermission, getTripFix, setSharingSwitchedOff, sharingSwitchedOff, isTracking, requestTrackingPermission, startTracking, stopTracking, TrackingPermission } from '../location';
@@ -63,6 +63,28 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
   const [posError, setPosError] = useState('');
   const [mapOpen, setMapOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletePw, setDeletePw] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteErr, setDeleteErr] = useState('');
+  const confirmDelete = async () => {
+    if (!deletePw || deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteErr('');
+    try {
+      await deleteAccount(deletePw);
+      await stopTracking();
+      await setSharingSwitchedOff(false);
+      await clearQueue();
+      await AsyncStorage.removeItem(PROFILE_KEY).catch(() => {});
+      setDeleteOpen(false);
+      onSignedOut();
+    } catch (err) {
+      setDeleteErr(err instanceof ApiError ? err.message : 'Could not delete the account. Check your connection.');
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   // A trip from the history, shown on the map with its route. `route` is null while it loads.
   const [tripView, setTripView] = useState<{ trip: Trip; route: [number, number][] | null; error?: string } | null>(null);
@@ -473,7 +495,41 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
               <Ionicons name="log-out-outline" size={20} color={colors.red} />
               <Text style={{ color: colors.red, fontWeight: '800', fontSize: 15, marginLeft: 8 }}>Sign out</Text>
             </TouchableOpacity>
+            <TouchableOpacity onPress={() => { setDeletePw(''); setDeleteErr(''); setProfileOpen(false); setDeleteOpen(true); }} style={{ alignItems: 'center', padding: 14, marginTop: 6 }} accessibilityRole="button">
+              <Text style={{ color: colors.muted, fontSize: 13, textDecorationLine: 'underline' }}>Delete account</Text>
+            </TouchableOpacity>
           </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const deleteSheet = (
+    <Modal visible={deleteOpen} transparent animationType="fade" onRequestClose={() => setDeleteOpen(false)} statusBarTranslucent>
+      <View style={{ flex: 1, backgroundColor: '#000a', justifyContent: 'center', padding: 24 }}>
+        <View style={{ backgroundColor: colors.surface, borderRadius: 18, padding: 20 }}>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>Delete your account?</Text>
+          <Text style={{ color: colors.muted, marginTop: 8, lineHeight: 20 }}>
+            Your sign-in, email and phone number are removed and you will not be able to sign in again. Trips you drove stay with your company. This cannot be undone.
+          </Text>
+          <TextInput
+            value={deletePw}
+            onChangeText={(v) => { setDeletePw(v); setDeleteErr(''); }}
+            placeholder="Your password"
+            placeholderTextColor={colors.muted}
+            secureTextEntry
+            autoCapitalize="none"
+            style={{ marginTop: 14, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12, color: colors.text }}
+          />
+          {!!deleteErr && <Text style={{ color: colors.red, marginTop: 8 }}>{deleteErr}</Text>}
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16, gap: 10 }}>
+            <TouchableOpacity onPress={() => setDeleteOpen(false)} style={{ padding: 12 }}>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={confirmDelete} disabled={!deletePw || deleteBusy} style={{ padding: 12, opacity: !deletePw || deleteBusy ? 0.5 : 1 }}>
+              <Text style={{ color: colors.red, fontWeight: '800' }}>{deleteBusy ? 'Deleting…' : 'Delete account'}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
@@ -548,6 +604,7 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
       <View style={{ flex: 1 }}>{tab === 'home' ? homeTab : tab === 'trips' ? tripsTab : alertsTab}</View>
       <TabBar tabs={tabs} value={tab} onChange={setTab} />
       {profileSheet}
+      {deleteSheet}
       {tripSheet}
 
       <Modal visible={mapOpen} animationType="slide" onRequestClose={() => setMapOpen(false)} statusBarTranslucent>

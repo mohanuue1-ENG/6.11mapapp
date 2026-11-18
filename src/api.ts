@@ -188,6 +188,13 @@ export async function logout() {
   await clearTokens();
 }
 
+// Deletes the driver's own account (needs the password). The caller then returns to the sign-in screen.
+export async function deleteAccount(password: string): Promise<void> {
+  await call('/driver/me', { method: 'DELETE', body: JSON.stringify({ password }) });
+  await clearTokens();
+  await SecureStore.deleteItemAsync(DEVICE_KEY).catch(() => {});
+}
+
 export const hasSession = async () => !!(await SecureStore.getItemAsync(REFRESH_KEY));
 
 export type Trip = {
