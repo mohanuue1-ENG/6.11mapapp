@@ -11,6 +11,7 @@ import { Colors, useTheme } from '../theme';
 import MapView, { MapHandle, MapPosition } from '../MapView';
 import Logo from '../Logo';
 import TabBar, { TabItem } from '../TabBar';
+import { ConnectionCard } from '../ConnectionScreens';
 
 const PROFILE_KEY = 'trukova.profile';
 type Tab = 'home' | 'trips' | 'alerts';
@@ -54,6 +55,9 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
   const [pending, setPending] = useState(0);
   const [meta, setMeta] = useState<SyncMeta>({ lastSyncAt: null, lastError: null });
   const [online, setOnline] = useState(true);
+  const [connCard, setConnCard] = useState<'offline' | 'online' | null>(null);
+  const firstNet = useRef(true);
+  const lastNet = useRef(true);
   const [tripBusy, setTripBusy] = useState(false);
   const [tripError, setTripError] = useState('');
   const [recent, setRecent] = useState<Trip[]>([]);
@@ -134,6 +138,20 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
   }, []);
 
   const loadProfile = useCallback(async () => {
+    // No connection: do not wait for a request to time out. Show the saved
+    // profile at once and the "You are offline" notice.
+    const net = await NetInfo.fetch().catch(() => null);
+    if (net && net.isConnected === false) {
+      setOnline(false);
+      setProfileError('');
+      const saved = await AsyncStorage.getItem(PROFILE_KEY).catch(() => null);
+      if (saved) {
+        try {
+          setProfile((now) => now ?? (JSON.parse(saved) as DriverProfile));
+        } catch {}
+      }
+      return;
+    }
     try {
       const fresh = await getProfile();
       setProfile(fresh);
@@ -161,8 +179,17 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
     const timer = setInterval(refreshStatus, 3000);
     // When the connection returns or the app comes to the front, upload what was queued offline.
     const net = NetInfo.addEventListener((s) => {
-      setOnline(!!s.isConnected);
-      if (s.isConnected) flushQueue().then(refreshStatus);
+      const on = !!s.isConnected;
+      setOnline(on);
+      if (on) flushQueue().then(refreshStatus);
+      // The first event only reports the state the app started in. After that,
+      // every change shows the offline / back online card.
+      if (firstNet.current) {
+        firstNet.current = false;
+      } else if (on !== lastNet.current) {
+        setConnCard(on ? 'online' : 'offline');
+      }
+      lastNet.current = on;
     });
     const app = AppState.addEventListener('change', (st) => {
       if (st === 'active') {
@@ -606,6 +633,7 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
       {profileSheet}
       {deleteSheet}
       {tripSheet}
+      {connCard && <ConnectionCard kind={connCard} onDone={() => setConnCard(null)} />}
 
       <Modal visible={mapOpen} animationType="slide" onRequestClose={() => setMapOpen(false)} statusBarTranslucent>
         <View style={{ flex: 1, backgroundColor: colors.bg }}>

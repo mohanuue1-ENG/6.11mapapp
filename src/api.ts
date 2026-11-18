@@ -53,7 +53,14 @@ async function raw(path: string, init: RequestInit & { auth?: boolean } = {}) {
   if (init.auth !== false && accessToken) headers.Authorization = `Bearer ${accessToken}`;
   let res: Response;
   try {
-    res = await fetch(API_URL + path, { ...init, headers });
+    // A request that hangs (weak or no signal) must fail quickly, not spin forever.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    try {
+      res = await fetch(API_URL + path, { ...init, headers, signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
   } catch {
     // No connection: the caller keeps its data and retries later.
     throw new ApiError(0, 'NETWORK', 'No connection');
