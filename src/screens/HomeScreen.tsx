@@ -137,6 +137,21 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
     setMeta(await readMeta());
   }, []);
 
+  // Points waiting to send means the connection is not working: show the offline
+  // card, and the back online card once they have all gone out.
+  const prevPending = useRef(0);
+  useEffect(() => {
+    const before = prevPending.current;
+    prevPending.current = pending;
+    if (before === 0 && pending > 0 && lastNet.current) {
+      lastNet.current = false;
+      setConnCard('offline');
+    } else if (before > 0 && pending === 0 && !lastNet.current) {
+      lastNet.current = true;
+      setConnCard('online');
+    }
+  }, [pending]);
+
   const loadProfile = useCallback(async () => {
     // No connection: do not wait for a request to time out. Show the saved
     // profile at once and the "You are offline" notice.
@@ -178,18 +193,26 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
     flushQueue().then(refreshStatus);
     const timer = setInterval(refreshStatus, 3000);
     // When the connection returns or the app comes to the front, upload what was queued offline.
+    let settle: ReturnType<typeof setTimeout> | null = null;
     const net = NetInfo.addEventListener((s) => {
-      const on = !!s.isConnected;
+      const on = s.isConnected !== false && s.isInternetReachable !== false;
       setOnline(on);
       if (on) flushQueue().then(refreshStatus);
-      // The first event only reports the state the app started in. After that,
-      // every change shows the offline / back online card.
+      // The first event only reports the state the app started in. After that, a
+      // change that holds for a moment shows the offline / back online card
+      // (the wait ignores the brief flicker while a connection switches).
       if (firstNet.current) {
         firstNet.current = false;
-      } else if (on !== lastNet.current) {
-        setConnCard(on ? 'online' : 'offline');
+        lastNet.current = on;
+        return;
       }
-      lastNet.current = on;
+      if (settle) clearTimeout(settle);
+      settle = setTimeout(() => {
+        if (on !== lastNet.current) {
+          lastNet.current = on;
+          setConnCard(on ? 'online' : 'offline');
+        }
+      }, 700);
     });
     const app = AppState.addEventListener('change', (st) => {
       if (st === 'active') {
@@ -199,6 +222,7 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
     });
     return () => {
       clearInterval(timer);
+      if (settle) clearTimeout(settle);
       net();
       app.remove();
     };
@@ -633,7 +657,7 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
       {profileSheet}
       {deleteSheet}
       {tripSheet}
-      {connCard && <ConnectionCard kind={connCard} onDone={() => setConnCard(null)} />}
+      {connCard && <ConnectionCard key={connCard} kind={connCard} onDone={() => setConnCard(null)} />}
 
       <Modal visible={mapOpen} animationType="slide" onRequestClose={() => setMapOpen(false)} statusBarTranslucent>
         <View style={{ flex: 1, backgroundColor: colors.bg }}>
