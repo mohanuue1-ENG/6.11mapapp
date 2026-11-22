@@ -89,7 +89,7 @@ ${SCENE}
   '#12201a',
 );
 
-const INTRO_MS = 3500;
+const INTRO_MS = 10000;
 const CARD_MS = 4500;
 
 function useDone(ms: number, onDone: () => void) {
