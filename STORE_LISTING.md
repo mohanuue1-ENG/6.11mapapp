@@ -4,8 +4,8 @@ Copy these into the Play Console and App Store Connect. Replace anything in [bra
 
 - App name: **TRUKOVA** (30 characters max)
 - Package / bundle id: `com.drive611.gps`
-- Privacy policy URL: `https://drive-611-gps-web.onrender.com/privacy`
-- Support URL: `https://drive-611-gps-web.onrender.com/contact`
+- Privacy policy URL: `https://611truckos.com/privacy`
+- Support URL: `https://611truckos.com/contact`
 - Category: Business (Play: Maps & Navigation or Business)
 - Contact email shown in the store: [your support email]
 
@@ -74,7 +74,7 @@ Drivers create their account with a phone number their company already added, th
 2. Give the reviewer: that phone number, a Gmail/inbox they can read (or a mailbox you check and forward the code from), and the website admin login so they can see the map.
 3. Write it in “Notes for review”:
 ```
-Sign-up: tap Create account → enter phone [number] → name → email [reviewer inbox] → enter the 6-digit code emailed to that address → choose a password. Admin website for the live map: https://drive-611-gps-web.onrender.com (login: [admin email] / [admin password]).
+Sign-up: tap Create account → enter phone [number] → name → email [reviewer inbox] → enter the 6-digit code emailed to that address → choose a password. Admin website for the live map: https://611truckos.com (login: [admin email] / [admin password]).
 ```
 (Use a throwaway admin account for this, not your real one.)
 
