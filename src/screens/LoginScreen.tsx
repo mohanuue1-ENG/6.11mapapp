@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TextInputProps, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
+import Press from '../Press';
 import { Ionicons } from '@expo/vector-icons';
 import { ApiError, checkSignupCode, login, lookupDriverPhone, registerDriver, requestPasswordReset, requestSignupCode, resetPassword, verifyLogin } from '../api';
 import { Colors, useTheme } from '../theme';
@@ -239,37 +240,37 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
   };
 
   const eye = (
-    <TouchableOpacity onPress={() => setShow(!show)} hitSlop={10} accessibilityLabel={show ? 'Hide password' : 'Show password'}>
+    <Press onPress={() => setShow(!show)} hitSlop={10} accessibilityLabel={show ? 'Hide password' : 'Show password'}>
       <Ionicons name={show ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.muted} />
-    </TouchableOpacity>
+    </Press>
   );
 
   const rememberRow = (
-    <TouchableOpacity style={s.rememberRow} onPress={() => setRemember(!remember)} activeOpacity={0.8} accessibilityRole="checkbox" accessibilityState={{ checked: remember }}>
+    <Press style={s.rememberRow} onPress={() => setRemember(!remember)} activeOpacity={0.8} accessibilityRole="checkbox" accessibilityState={{ checked: remember }}>
       <Ionicons name={remember ? 'checkbox' : 'square-outline'} size={22} color={remember ? colors.accent : colors.muted} />
       <Text style={s.rememberText}>Remember me for 30 days</Text>
-    </TouchableOpacity>
+    </Press>
   );
 
   const button = (label: string, onPress: () => void, enabled: boolean) => (
-    <TouchableOpacity style={[s.button, (!enabled || busy) && { opacity: 0.5 }]} onPress={onPress} disabled={!enabled || busy} activeOpacity={0.85}>
+    <Press style={[s.button, (!enabled || busy) && { opacity: 0.5 }]} onPress={onPress} disabled={!enabled || busy} activeOpacity={0.85}>
       {busy ? <ActivityIndicator color={colors.onAccent} /> : <Text style={s.buttonText}>{label}</Text>}
-    </TouchableOpacity>
+    </Press>
   );
 
   const link = (label: string, onPress: () => void) => (
-    <TouchableOpacity onPress={onPress} disabled={busy} hitSlop={8} style={{ alignSelf: 'center', marginTop: 16 }}>
+    <Press onPress={onPress} disabled={busy} hitSlop={8} style={{ alignSelf: 'center', marginTop: 16 }}>
       <Text style={s.link}>{label}</Text>
-    </TouchableOpacity>
+    </Press>
   );
 
   // The phone number: a country-code picker, then the number.
   const numberField = (onSubmit: () => void) => (
     <View style={[s.field, focus === 'phone' && s.fieldFocus, { paddingLeft: 8 }]}>
-      <TouchableOpacity style={s.dialBtn} onPress={() => setPickerOpen(true)} accessibilityLabel={`Country code ${country.name} plus ${country.dial}. Tap to change.`}>
+      <Press style={s.dialBtn} onPress={() => setPickerOpen(true)} accessibilityLabel={`Country code ${country.name} plus ${country.dial}. Tap to change.`}>
         <Text style={s.dialText}>{flag(country.code)} +{country.dial}</Text>
         <Ionicons name="chevron-down" size={16} color={colors.muted} />
-      </TouchableOpacity>
+      </Press>
       <TextInput
         style={s.input}
         placeholder="Phone number"
@@ -278,7 +279,7 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
         autoComplete="tel"
         returnKeyType="go"
         value={phone}
-        onChangeText={(v) => setPhone(v.replace(/[^\d\s-]/g, ''))}
+        onChangeText={(v) => setPhone(v.replace(/[^\d\s\-+().]/g, ''))}
         onFocus={() => setFocus('phone')}
         onBlur={() => setFocus('')}
         onSubmitEditing={onSubmit}
@@ -306,9 +307,8 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
   const codeField = field('code', 'mail-open-outline', {
     placeholder: '6-digit code',
     keyboardType: 'number-pad',
-    maxLength: 6,
     value: code,
-    onChangeText: (v) => setCode(v.replace(/\D/g, '')),
+    onChangeText: (v) => setCode(v.replace(/\D/g, '').slice(0, 6)),
     textContentType: 'oneTimeCode',
   });
 
@@ -347,9 +347,9 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" bounces={false}>
         <View style={s.glow} pointerEvents="none" />
-        <TouchableOpacity style={s.modeBtn} onPress={toggle} hitSlop={8} accessibilityLabel={mode === 'night' ? 'Switch to day mode' : 'Switch to night mode'}>
+        <Press style={s.modeBtn} onPress={toggle} hitSlop={8} accessibilityLabel={mode === 'night' ? 'Switch to day mode' : 'Switch to night mode'}>
           <Ionicons name={mode === 'night' ? 'sunny-outline' : 'moon-outline'} size={22} color={colors.text} />
-        </TouchableOpacity>
+        </Press>
 
         <View style={s.hero}>
           <Image source={require('../../assets/logo.png')} style={s.logo} accessibilityLabel="TRUKOVA" />
@@ -492,7 +492,7 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
 
       <Modal visible={pickerOpen} transparent animationType="slide" onRequestClose={() => setPickerOpen(false)} statusBarTranslucent>
         <View style={s.pickerBackdrop}>
-          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setPickerOpen(false)} accessibilityLabel="Close country list" />
+          <Press style={{ flex: 1 }} activeOpacity={1} onPress={() => setPickerOpen(false)} accessibilityLabel="Close country list" />
           <View style={s.pickerSheet}>
             <View style={s.grab} />
             <Text style={s.pickerTitle}>Country code</Text>
@@ -507,7 +507,7 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
               renderItem={({ item }) => {
                 const on = item.code === country.code;
                 return (
-                  <TouchableOpacity
+                  <Press
                     style={[s.countryRow, on && { backgroundColor: colors.surface2 }]}
                     onPress={() => {
                       lastCountry = item;
@@ -519,7 +519,7 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
                     <Text style={s.countryFlag}>{flag(item.code)}</Text>
                     <Text style={[s.countryName, on && { fontWeight: '800' }]}>{item.name}</Text>
                     <Text style={s.countryDial}>+{item.dial}</Text>
-                  </TouchableOpacity>
+                  </Press>
                 );
               }}
             />

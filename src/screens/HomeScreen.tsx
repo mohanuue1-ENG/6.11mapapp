@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, Image, Linking, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, AppState, Image, Linking, Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import Press from '../Press';
 import { Ionicons } from '@expo/vector-icons';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -381,9 +382,9 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
               <Text style={s.sub} numberOfLines={1}>{tracking ? syncLine : 'Your company cannot see your truck'}</Text>
             </View>
           </View>
-          <TouchableOpacity style={[s.chip, tracking ? s.chipOff : s.chipOn]} onPress={toggleTracking} activeOpacity={0.85}>
+          <Press style={[s.chip, tracking ? s.chipOff : s.chipOn]} onPress={toggleTracking} activeOpacity={0.85}>
             <Text style={[s.chipText, { color: tracking ? colors.text : colors.onAccent }]}>{tracking ? 'Stop' : 'Start'}</Text>
-          </TouchableOpacity>
+          </Press>
         </View>
         {!!modeNote && tracking && <Text style={s.warn}>{modeNote}</Text>}
         {!!shareError && <Text style={s.err}>{shareError}</Text>}
@@ -402,7 +403,7 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
         </View>
       </View>
 
-      <TouchableOpacity style={[s.card, { padding: 0, overflow: 'hidden' }]} activeOpacity={0.9} onPress={() => setMapOpen(true)} accessibilityLabel="Open the map">
+      <Press style={[s.card, { padding: 0, overflow: 'hidden' }]} activeOpacity={0.9} onPress={() => setMapOpen(true)} accessibilityLabel="Open the map">
         <View style={{ height: 190 }}>
           <MapView interactive={false} route={route} style={StyleSheet.absoluteFill} onPosition={(p, e) => { setPos(p); setPosError(e ?? ''); }} />
         </View>
@@ -416,16 +417,16 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
             <Ionicons name="expand-outline" size={16} color={colors.accent} />
           </View>
         </View>
-      </TouchableOpacity>
+      </Press>
 
       {profile?.activeTrip ? (
-        <TouchableOpacity style={[s.cta, { backgroundColor: colors.red }, tripBusy && { opacity: 0.6 }]} onPress={finishTrip} disabled={tripBusy} activeOpacity={0.85}>
+        <Press style={[s.cta, { backgroundColor: colors.red }, tripBusy && { opacity: 0.6 }]} onPress={finishTrip} disabled={tripBusy} activeOpacity={0.85}>
           <Text style={[s.ctaText, { color: '#fff' }]}>{tripBusy ? 'Please wait…' : 'End Trip'}</Text>
-        </TouchableOpacity>
+        </Press>
       ) : (
-        <TouchableOpacity style={[s.cta, (tripBusy || !profile?.truck) && { opacity: 0.5 }]} onPress={beginTrip} disabled={tripBusy || !profile?.truck} activeOpacity={0.85}>
+        <Press style={[s.cta, (tripBusy || !profile?.truck) && { opacity: 0.5 }]} onPress={beginTrip} disabled={tripBusy || !profile?.truck} activeOpacity={0.85}>
           <Text style={s.ctaText}>{tripBusy ? 'Getting GPS position…' : 'Start Trip'}</Text>
-        </TouchableOpacity>
+        </Press>
       )}
       {!!tripError && <Text style={s.err}>{tripError}</Text>}
       <Text style={s.hint}>Do not use the app while driving.</Text>
@@ -447,13 +448,13 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
           <Text style={s.cardTitle}>No active trip</Text>
         )}
         {profile?.activeTrip ? (
-          <TouchableOpacity style={[s.cta, { backgroundColor: colors.red, marginTop: 14 }, tripBusy && { opacity: 0.6 }]} onPress={finishTrip} disabled={tripBusy}>
+          <Press style={[s.cta, { backgroundColor: colors.red, marginTop: 14 }, tripBusy && { opacity: 0.6 }]} onPress={finishTrip} disabled={tripBusy}>
             <Text style={[s.ctaText, { color: '#fff' }]}>{tripBusy ? 'Please wait…' : 'End Trip'}</Text>
-          </TouchableOpacity>
+          </Press>
         ) : (
-          <TouchableOpacity style={[s.cta, { marginTop: 14 }, (tripBusy || !profile?.truck) && { opacity: 0.5 }]} onPress={beginTrip} disabled={tripBusy || !profile?.truck}>
+          <Press style={[s.cta, { marginTop: 14 }, (tripBusy || !profile?.truck) && { opacity: 0.5 }]} onPress={beginTrip} disabled={tripBusy || !profile?.truck}>
             <Text style={s.ctaText}>{tripBusy ? 'Getting GPS position…' : 'Start Trip'}</Text>
-          </TouchableOpacity>
+          </Press>
         )}
         {!!tripError && <Text style={s.err}>{tripError}</Text>}
       </View>
@@ -463,14 +464,14 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
         <View style={s.card}><Text style={s.sub}>No trips yet.</Text></View>
       ) : (
         recent.map((t) => (
-          <TouchableOpacity key={t.id} style={s.card} activeOpacity={0.8} onPress={() => openTrip(t)} accessibilityRole="button" accessibilityLabel="Show this trip on the map">
+          <Press key={t.id} style={s.card} activeOpacity={0.8} onPress={() => openTrip(t)} accessibilityRole="button" accessibilityLabel="Show this trip on the map">
             <View style={s.row}>
               <Text style={s.cardTitle}>{new Date(t.startedAt).toLocaleDateString()}</Text>
               <Text style={{ color: t.status === 'ACTIVE' ? colors.accent : colors.muted, fontWeight: '700', fontSize: 12 }}>{t.status === 'ACTIVE' ? 'LIVE' : 'COMPLETED'}</Text>
             </View>
             <Text style={s.sub}>Truck #{t.truck.truckNumber} · {tripLine(t)}</Text>
             <Text style={[s.sub, { color: colors.accent, fontWeight: '700', marginTop: 8 }]}>View route on map ›</Text>
-          </TouchableOpacity>
+          </Press>
         ))
       )}
     </ScrollView>
@@ -504,7 +505,7 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
   const profileSheet = (
     <Modal visible={profileOpen} transparent animationType="slide" onRequestClose={() => setProfileOpen(false)} statusBarTranslucent>
       <View style={s.profileBackdrop}>
-        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setProfileOpen(false)} accessibilityLabel="Close profile" />
+        <Press style={{ flex: 1 }} activeOpacity={1} onPress={() => setProfileOpen(false)} accessibilityLabel="Close profile" />
         <View style={s.profileSheet}>
           <View style={s.grab} />
           <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
@@ -542,13 +543,13 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
               {detail('Current trip', profile?.activeTrip ? `In progress · since ${new Date(profile.activeTrip.startedAt).toLocaleTimeString()}` : 'No active trip')}
             </View>
 
-            <TouchableOpacity style={s.signOut} onPress={() => { setProfileOpen(false); signOut(); }} activeOpacity={0.85}>
+            <Press style={s.signOut} onPress={() => { setProfileOpen(false); signOut(); }} activeOpacity={0.85}>
               <Ionicons name="log-out-outline" size={20} color={colors.red} />
               <Text style={{ color: colors.red, fontWeight: '800', fontSize: 15, marginLeft: 8 }}>Sign out</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => { setDeletePw(''); setDeleteErr(''); setProfileOpen(false); setDeleteOpen(true); }} style={{ alignItems: 'center', padding: 14, marginTop: 6 }} accessibilityRole="button">
+            </Press>
+            <Press onPress={() => { setDeletePw(''); setDeleteErr(''); setProfileOpen(false); setDeleteOpen(true); }} style={{ alignItems: 'center', padding: 14, marginTop: 6 }} accessibilityRole="button">
               <Text style={{ color: colors.muted, fontSize: 13, textDecorationLine: 'underline' }}>Delete account</Text>
-            </TouchableOpacity>
+            </Press>
           </ScrollView>
         </View>
       </View>
@@ -574,12 +575,12 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
           />
           {!!deleteErr && <Text style={{ color: colors.red, marginTop: 8 }}>{deleteErr}</Text>}
           <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16, gap: 10 }}>
-            <TouchableOpacity onPress={() => setDeleteOpen(false)} style={{ padding: 12 }}>
+            <Press onPress={() => setDeleteOpen(false)} style={{ padding: 12 }}>
               <Text style={{ color: colors.text, fontWeight: '700' }}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={confirmDelete} disabled={!deletePw || deleteBusy} style={{ padding: 12, opacity: !deletePw || deleteBusy ? 0.5 : 1 }}>
+            </Press>
+            <Press onPress={confirmDelete} disabled={!deletePw || deleteBusy} style={{ padding: 12, opacity: !deletePw || deleteBusy ? 0.5 : 1 }}>
               <Text style={{ color: colors.red, fontWeight: '800' }}>{deleteBusy ? 'Deleting…' : 'Delete account'}</Text>
-            </TouchableOpacity>
+            </Press>
           </View>
         </View>
       </View>
@@ -595,9 +596,9 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
           <View style={s.mapPill}>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{tripView ? new Date(tripView.trip.startedAt).toLocaleDateString() : ''}</Text>
           </View>
-          <TouchableOpacity style={s.roundBtn} onPress={() => setTripView(null)} accessibilityLabel="Close trip">
+          <Press style={s.roundBtn} onPress={() => setTripView(null)} accessibilityLabel="Close trip">
             <Ionicons name="close" size={22} color={colors.text} />
-          </TouchableOpacity>
+          </Press>
         </View>
         {!!tripView && (
           <View style={s.mapSheet}>
@@ -644,12 +645,12 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
       <View style={s.topBar}>
         <Logo size={36} />
         <View style={s.row}>
-          <TouchableOpacity style={s.modeBtn} onPress={toggle} hitSlop={8} accessibilityLabel={mode === 'night' ? 'Switch to day mode' : 'Switch to night mode'}>
+          <Press style={s.modeBtn} onPress={toggle} hitSlop={8} accessibilityLabel={mode === 'night' ? 'Switch to day mode' : 'Switch to night mode'}>
             <Ionicons name={mode === 'night' ? 'sunny-outline' : 'moon-outline'} size={20} color={colors.text} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[s.avatar, { width: 42, height: 42, borderRadius: 21 }]} onPress={() => setProfileOpen(true)} hitSlop={6} accessibilityLabel="Open profile">
+          </Press>
+          <Press style={[s.avatar, { width: 42, height: 42, borderRadius: 21 }]} onPress={() => setProfileOpen(true)} hitSlop={6} accessibilityLabel="Open profile">
             <Text style={[s.avatarText, { fontSize: 18 }]}>{initial}</Text>
-          </TouchableOpacity>
+          </Press>
         </View>
       </View>
       <View style={{ flex: 1 }}>{tab === 'home' ? homeTab : tab === 'trips' ? tripsTab : alertsTab}</View>
@@ -664,7 +665,7 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
           <MapView ref={bigMap} route={route} style={StyleSheet.absoluteFill} onPosition={(p, e) => { setPos(p); setPosError(e ?? ''); }} />
           <View style={s.mapTop}>
             <View style={s.mapPill}><Logo size={26} /></View>
-            <TouchableOpacity style={s.roundBtn} onPress={() => setMapOpen(false)} accessibilityLabel="Close map"><Ionicons name="close" size={22} color={colors.text} /></TouchableOpacity>
+            <Press style={s.roundBtn} onPress={() => setMapOpen(false)} accessibilityLabel="Close map"><Ionicons name="close" size={22} color={colors.text} /></Press>
           </View>
           <View style={s.mapSheet}>
             <View style={s.row}>
@@ -677,9 +678,9 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
                 <Text style={{ color: tracking ? colors.accent : colors.muted, fontWeight: '700', fontSize: 12 }}>{tracking ? 'Sharing' : 'Not sharing'}</Text>
               </View>
             </View>
-            <TouchableOpacity style={[s.cta, { marginTop: 14 }, tracking && { backgroundColor: colors.surface2 }]} onPress={toggleTracking} activeOpacity={0.85}>
+            <Press style={[s.cta, { marginTop: 14 }, tracking && { backgroundColor: colors.surface2 }]} onPress={toggleTracking} activeOpacity={0.85}>
               <Text style={[s.ctaText, tracking && { color: colors.text }]}>{tracking ? 'Stop sharing' : 'Start sharing location'}</Text>
-            </TouchableOpacity>
+            </Press>
           </View>
         </View>
       </Modal>
