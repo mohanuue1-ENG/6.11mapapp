@@ -233,6 +233,16 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
     setShareError('');
     try {
       if (tracking) {
+        // Stopping during a trip would leave a hole in its route.
+        if (profile?.activeTrip) {
+          const stop = await new Promise<boolean>((resolve) =>
+            Alert.alert('A trip is running', 'If you stop sharing, the route of this trip will have a gap and will show as a straight line.', [
+              { text: 'Keep sharing', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Stop anyway', style: 'destructive', onPress: () => resolve(true) },
+            ]),
+          );
+          if (!stop) return;
+        }
         await setSharingSwitchedOff(true);
         await stopTracking();
         setModeNote('');
@@ -280,6 +290,18 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
     setTripBusy(true);
     setTripError('');
     try {
+      // A trip must record its route. Without location sharing there would be only a start and an end point, and the map
+      // would draw a straight line between them. So sharing is switched on here, even if it was switched off before.
+      if (!(await isTracking())) {
+        const granted = await requestTrackingPermission();
+        if (granted === 'denied') {
+          throw new Error('Allow location access (choose "Always") so your route can be recorded, then start the trip.');
+        }
+        await setSharingSwitchedOff(false);
+        const mode = await startTracking();
+        setModeNote(mode === 'foreground' ? 'Works while the app is open' : '');
+        refreshStatus();
+      }
       const fix = await getTripFix();
       await startTrip(fix);
       await loadProfile();
