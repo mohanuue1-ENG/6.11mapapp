@@ -13,6 +13,7 @@ import MapView, { MapHandle, MapPosition } from '../MapView';
 import Logo from '../Logo';
 import TabBar, { TabItem } from '../TabBar';
 import { ConnectionCard } from '../ConnectionScreens';
+import { listenForLoadReminders, registerForPush } from '../push';
 
 const PROFILE_KEY = 'trukova.profile';
 type Tab = 'home' | 'trips' | 'loads' | 'fuel' | 'alerts';
@@ -370,6 +371,19 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
       setTripBusy(false);
     }
   };
+
+  // A reminder for a new load: pressing it opens the loads, and its "Start trip" button starts the trip for that load straight away.
+  const beginRef = useRef(beginTrip);
+  beginRef.current = beginTrip;
+  useEffect(() => {
+    if (!loadsEnabled) return undefined;
+    registerForPush().catch(() => {});
+    return listenForLoadReminders((loadId, startNow) => {
+      setTab(startNow ? 'home' : 'loads');
+      refreshLoads();
+      if (startNow) beginRef.current(loadId);
+    });
+  }, [loadsEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const finishTrip = () => {
     const trip = profile?.activeTrip;

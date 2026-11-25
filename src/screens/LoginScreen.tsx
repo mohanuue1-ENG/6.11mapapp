@@ -1,3 +1,4 @@
+import CodeBoxes from '../CodeBoxes';
 import React, { useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
 import Press from '../Press';
@@ -304,13 +305,7 @@ export default function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) 
       autoFocus: true,
     });
 
-  const codeField = field('code', 'mail-open-outline', {
-    placeholder: '6-digit code',
-    keyboardType: 'number-pad',
-    value: code,
-    onChangeText: (v) => setCode(v.replace(/\D/g, '').slice(0, 6)),
-    textContentType: 'oneTimeCode',
-  });
+  const codeField = <CodeBoxes value={code} onChange={setCode} autoFocus />;
 
   const passwordFields = (onSubmit: () => void, label: string) => (
     <>
