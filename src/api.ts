@@ -212,11 +212,14 @@ export type Trip = {
   endedAt: string | null;
   durationSeconds: number | null;
   distanceMeters: number | null;
+  loadId?: string | null;
+  loadNumber?: string | null;
 };
 
 export type GpsFix = { latitude: number; longitude: number; gpsTimestamp: string; accuracyMeters: number };
 
-export const startTrip = (fix: GpsFix): Promise<{ trip: Trip }> => call('/trips/start', { method: 'POST', body: JSON.stringify(fix) });
+// A trip can be started for one of the driver's loads: the trip is then called by the load number.
+export const startTrip = (fix: GpsFix, loadId?: string): Promise<{ trip: Trip }> => call('/trips/start', { method: 'POST', body: JSON.stringify(loadId ? { ...fix, loadId } : fix) });
 export const endTrip = (id: string, fix: GpsFix): Promise<{ trip: Trip }> => call(`/trips/${id}/end`, { method: 'POST', body: JSON.stringify(fix) });
 export type RoutePoint = { latitude: number; longitude: number; speedMps: number | null; gpsTimestamp: string };
 // One trip with the points of its route recorded so far.
@@ -227,3 +230,35 @@ export const getProfile = (): Promise<DriverProfile> => call('/driver/me');
 
 export const uploadBatch = (batchId: string, locations: GpsPoint[]): Promise<BatchResult> =>
   call('/gps/locations/batch', { method: 'POST', body: JSON.stringify({ batchId, locations }) });
+
+
+// Loads (Loadova): the loads the company gave this driver. There is no money in them: the driver never sees Cash In.
+export type Load = {
+  id: string;
+  loadNumber: string;
+  loadDate: string;
+  broker: string;
+  pickupLocation: string | null;
+  pickupTime: string | null;
+  dropoffLocation: string | null;
+  dropoffTime: string | null;
+  truckNumber: string | null;
+  status: 'assigned' | 'picked_up' | 'delivered';
+};
+export const getLoads = (): Promise<{ loads: Load[] }> => call('/driver/loads');
+export const setLoadStatus = (id: string, status: 'picked_up' | 'delivered'): Promise<{ load: Load }> =>
+  call(`/driver/loads/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) });
+
+
+// Fuel recorded for this driver by the office.
+export type FuelRecord = {
+  id: string;
+  fuelDate: string;
+  stateAbbr: string;
+  location: string;
+  receiptNumber: string | null;
+  gallons: number;
+  cashOutCents: number;
+  truckNumber: string | null;
+};
+export const getFuel = (): Promise<{ fuel: FuelRecord[] }> => call('/driver/fuel');

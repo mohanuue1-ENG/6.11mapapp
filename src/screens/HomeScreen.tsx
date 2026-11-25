@@ -4,7 +4,7 @@ import Press from '../Press';
 import { Ionicons } from '@expo/vector-icons';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ApiError, DriverProfile, Trip, deleteAccount, endTrip, getProfile, getTrip, listTrips, logout, startTrip } from '../api';
+import { ApiError, DriverProfile, Trip, deleteAccount, endTrip, getProfile, getTrip, listTrips, logout, startTrip, getLoads, setLoadStatus, Load, getFuel, FuelRecord } from '../api';
 import { clearQueue, pendingCount, readMeta, SyncMeta } from '../queue';
 import { flushQueue } from '../sync';
 import { currentPermission, getTripFix, setSharingSwitchedOff, sharingSwitchedOff, isTracking, requestTrackingPermission, startTracking, stopTracking, TrackingPermission } from '../location';
@@ -15,7 +15,7 @@ import TabBar, { TabItem } from '../TabBar';
 import { ConnectionCard } from '../ConnectionScreens';
 
 const PROFILE_KEY = 'trukova.profile';
-type Tab = 'home' | 'trips' | 'alerts';
+type Tab = 'home' | 'trips' | 'loads' | 'fuel' | 'alerts';
 type AlertItem = { id: string; level: 'error' | 'warn' | 'info' | 'ok'; title: string; text: string };
 
 const ago = (iso: string | null) => {
@@ -49,11 +49,59 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
   const s = useMemo(() => makeStyles(colors), [colors]);
   const LEVEL = useMemo(() => levelsFor(colors), [colors]);
   const [tab, setTab] = useState<Tab>('home');
+
+  // Loads (Loadova). The tab exists only when the company's plan includes Loadova: the server says no (402) otherwise.
+  const [loadsEnabled, setLoadsEnabled] = useState(false);
+  const [loads, setLoads] = useState<Load[] | null>(null);
+  const [loadBusy, setLoadBusy] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const refreshLoads = useCallback(async () => {
+    try {
+      const r = await getLoads();
+      setLoads(r.loads);
+      setLoadsEnabled(true);
+      setLoadError('');
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'NETWORK') setLoadError('No connection. Pull the latest loads when you are online.');
+      else setLoadsEnabled(false);
+    }
+  }, []);
+  useEffect(() => {
+    refreshLoads();
+  }, [refreshLoads]);
+  useEffect(() => {
+    if (tab === 'loads') refreshLoads();
+  }, [tab, refreshLoads]);
+  // Fuel recorded for this driver (also part of Loadova).
+  const [fuel, setFuel] = useState<FuelRecord[] | null>(null);
+  useEffect(() => {
+    if (tab === 'fuel' || (loadsEnabled && fuel === null)) getFuel().then((r) => setFuel(r.fuel)).catch(() => {});
+  }, [tab, loadsEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  const moveLoad = async (l: Load, status: 'picked_up' | 'delivered') => {
+    if (loadBusy) return;
+    setLoadBusy(l.id);
+    setLoadError('');
+    try {
+      const r = await setLoadStatus(l.id, status);
+      setLoads((now) => (now ? now.map((x) => (x.id === l.id ? r.load : x)) : now));
+    } catch (err) {
+      setLoadError(err instanceof ApiError && err.code === 'NETWORK' ? 'No connection. Try again when you are online.' : err instanceof Error ? err.message : 'Could not update the load.');
+    } finally {
+      setLoadBusy(null);
+    }
+  };
   const [profile, setProfile] = useState<DriverProfile | null>(null);
   const [profileError, setProfileError] = useState('');
   const [tracking, setTracking] = useState(false);
   const [permission, setPermission] = useState<TrackingPermission>('denied');
   const [pending, setPending] = useState(0);
+  // Ticks while points are waiting, so the banner appears 10 seconds after the first failure to send.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (pending <= 0) return undefined;
+    const id = setInterval(() => setTick((t) => t + 1), 2000);
+    return () => clearInterval(id);
+  }, [pending]);
   const [meta, setMeta] = useState<SyncMeta>({ lastSyncAt: null, lastError: null });
   const [online, setOnline] = useState(true);
   const [connCard, setConnCard] = useState<'offline' | 'online' | null>(null);
@@ -284,9 +332,18 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
     })();
   }, [profile?.truck, refreshStatus]);
 
+  // "Start trip": if the driver has open loads, ask which one the trip is for (the trip is then called by its load number).
+  const [pickLoad, setPickLoad] = useState(false);
+  const openLoads = (loads ?? []).filter((l) => l.status !== 'delivered');
+  const askStart = () => {
+    if (loadsEnabled && openLoads.length > 0) setPickLoad(true);
+    else beginTrip();
+  };
+
   // Start / end use a fresh GPS fix from the phone. If it cannot get one, nothing is sent and the driver can retry.
-  const beginTrip = async () => {
+  const beginTrip = async (loadId?: string) => {
     if (tripBusy) return;
+    setPickLoad(false);
     setTripBusy(true);
     setTripError('');
     try {
@@ -303,8 +360,9 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
         refreshStatus();
       }
       const fix = await getTripFix();
-      await startTrip(fix);
+      await startTrip(fix, loadId);
       await loadProfile();
+      if (loadId) refreshLoads();
     } catch (err) {
       if (err instanceof ApiError && err.code === 'ACTIVE_TRIP') await loadProfile();
       else setTripError(err instanceof ApiError && err.code === 'NETWORK' ? 'No connection. Try again when you are online.' : err instanceof Error ? err.message : 'Could not start the trip.');
@@ -379,6 +437,9 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
   if (!tracking && permission !== 'denied') alerts.push({ id: 'off', level: 'info', title: 'Location sharing is off', text: 'Start sharing on the Home tab so your company can see your truck.' });
   const needsAttention = alerts.filter((a) => a.level === 'error' || a.level === 'warn').length;
 
+  const lastOk = meta.lastSyncAt ? new Date(meta.lastSyncAt).getTime() : 0;
+  const notSending = tracking && pending > 0 && (!online || Date.now() - lastOk > 10_000);
+  void tick;
   const syncLine = !online ? 'Offline' : pending > 0 ? `${pending} waiting to send` : meta.lastSyncAt ? `Last update: ${ago(meta.lastSyncAt)}` : 'Waiting for first update';
 
   // ---------- Home ----------
@@ -446,12 +507,104 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
           <Text style={[s.ctaText, { color: '#fff' }]}>{tripBusy ? 'Please wait…' : 'End Trip'}</Text>
         </Press>
       ) : (
-        <Press style={[s.cta, (tripBusy || !profile?.truck) && { opacity: 0.5 }]} onPress={beginTrip} disabled={tripBusy || !profile?.truck} activeOpacity={0.85}>
+        <Press style={[s.cta, (tripBusy || !profile?.truck) && { opacity: 0.5 }]} onPress={askStart} disabled={tripBusy || !profile?.truck} activeOpacity={0.85}>
           <Text style={s.ctaText}>{tripBusy ? 'Getting GPS position…' : 'Start Trip'}</Text>
         </Press>
       )}
       {!!tripError && <Text style={s.err}>{tripError}</Text>}
       <Text style={s.hint}>Do not use the app while driving.</Text>
+    </ScrollView>
+  );
+
+  const loadPicker = (
+    <Modal visible={pickLoad} transparent animationType="slide" onRequestClose={() => setPickLoad(false)}>
+      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+        <View style={[s.mapSheet, { maxHeight: '75%' }]}>
+          <Text style={s.title}>Which load?</Text>
+          <Text style={s.sub}>The trip will be called by the load number.</Text>
+          <ScrollView style={{ marginTop: 12 }}>
+            {openLoads.map((l) => (
+              <Press key={l.id} style={[s.card, { marginBottom: 10 }]} onPress={() => beginTrip(l.id)}>
+                <Text style={s.cardTitle}>Load #{l.loadNumber}</Text>
+                <Text style={s.sub}>{l.pickupLocation || '–'} → {l.dropoffLocation || '–'}</Text>
+              </Press>
+            ))}
+            <Press style={[s.card, { marginBottom: 10 }]} onPress={() => beginTrip()}>
+              <Text style={s.cardTitle}>No load</Text>
+              <Text style={s.sub}>Start a trip that is not for a load.</Text>
+            </Press>
+          </ScrollView>
+          <Press style={[s.cta, { backgroundColor: colors.surface2, marginTop: 6 }]} onPress={() => setPickLoad(false)}>
+            <Text style={[s.ctaText, { color: colors.text }]}>Cancel</Text>
+          </Press>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  // ---------- Loads ----------
+  const loadStatusLabel = { assigned: 'Assigned', picked_up: 'Picked up', delivered: 'Delivered' } as const;
+  const loadStatusColor = (st: Load['status']) => (st === 'delivered' ? colors.accent : st === 'picked_up' ? colors.blue : colors.amber);
+  const loadsTab = (
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={s.page} showsVerticalScrollIndicator={false}>
+      <Text style={s.title}>Loads</Text>
+      {!!loadError && <Text style={s.err}>{loadError}</Text>}
+      {loads === null && <Text style={s.sub}>Loading…</Text>}
+      {loads !== null && loads.length === 0 && (
+        <View style={s.card}>
+          <Text style={s.cardTitle}>No loads right now</Text>
+          <Text style={s.sub}>When your dispatcher gives you a load, it appears here.</Text>
+        </View>
+      )}
+      {(loads ?? []).map((l) => (
+        <View key={l.id} style={s.card}>
+          <View style={[s.row, { justifyContent: 'space-between' }]}>
+            <Text style={s.cardTitle}>#{l.loadNumber}</Text>
+            <Text style={{ color: loadStatusColor(l.status), fontWeight: '800', fontSize: 12 }}>● {loadStatusLabel[l.status]}</Text>
+          </View>
+          <Text style={s.sub}>{l.loadDate} · {l.broker}</Text>
+          <Text style={s.label}>PICK UP</Text>
+          <Text style={s.cardTitle}>{l.pickupLocation || '–'}</Text>
+          {!!l.pickupTime && <Text style={s.sub}>{l.pickupTime}</Text>}
+          <Text style={[s.label, { marginTop: 10 }]}>DROP OFF</Text>
+          <Text style={s.cardTitle}>{l.dropoffLocation || '–'}</Text>
+          {!!l.dropoffTime && <Text style={s.sub}>{l.dropoffTime}</Text>}
+          {l.status === 'assigned' && (
+            <Press style={[s.cta, { marginTop: 14 }, loadBusy === l.id && { opacity: 0.6 }]} onPress={() => moveLoad(l, 'picked_up')} disabled={!!loadBusy}>
+              <Text style={s.ctaText}>{loadBusy === l.id ? 'Please wait…' : 'Picked up'}</Text>
+            </Press>
+          )}
+          {l.status === 'picked_up' && (
+            <Press style={[s.cta, { marginTop: 14 }, loadBusy === l.id && { opacity: 0.6 }]} onPress={() => moveLoad(l, 'delivered')} disabled={!!loadBusy}>
+              <Text style={s.ctaText}>{loadBusy === l.id ? 'Please wait…' : 'Delivered'}</Text>
+            </Press>
+          )}
+        </View>
+      ))}
+    </ScrollView>
+  );
+
+  // ---------- Fuel ----------
+  const fuelTab = (
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={s.page} showsVerticalScrollIndicator={false}>
+      <Text style={s.title}>Fuel</Text>
+      {fuel === null && <Text style={s.sub}>Loading…</Text>}
+      {fuel !== null && fuel.length === 0 && (
+        <View style={s.card}>
+          <Text style={s.cardTitle}>No fuel recorded yet</Text>
+          <Text style={s.sub}>Fuel your company writes for you appears here.</Text>
+        </View>
+      )}
+      {(fuel ?? []).map((r) => (
+        <View key={r.id} style={s.card}>
+          <View style={[s.row, { justifyContent: 'space-between' }]}>
+            <Text style={s.cardTitle}>{r.stateAbbr} · {r.location}</Text>
+            <Text style={[s.cardTitle, { color: colors.accent }]}>${(r.cashOutCents / 100).toFixed(2)}</Text>
+          </View>
+          <Text style={s.sub}>{r.fuelDate} · {r.gallons} gal{r.receiptNumber ? ` · Receipt ${r.receiptNumber}` : ''}</Text>
+          {!!r.truckNumber && <Text style={s.sub}>Truck #{r.truckNumber}</Text>}
+        </View>
+      ))}
     </ScrollView>
   );
 
@@ -474,7 +627,7 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
             <Text style={[s.ctaText, { color: '#fff' }]}>{tripBusy ? 'Please wait…' : 'End Trip'}</Text>
           </Press>
         ) : (
-          <Press style={[s.cta, { marginTop: 14 }, (tripBusy || !profile?.truck) && { opacity: 0.5 }]} onPress={beginTrip} disabled={tripBusy || !profile?.truck}>
+          <Press style={[s.cta, { marginTop: 14 }, (tripBusy || !profile?.truck) && { opacity: 0.5 }]} onPress={askStart} disabled={tripBusy || !profile?.truck}>
             <Text style={s.ctaText}>{tripBusy ? 'Getting GPS position…' : 'Start Trip'}</Text>
           </Press>
         )}
@@ -659,6 +812,7 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
   const tabs: TabItem<Tab>[] = [
     { id: 'home', label: 'Home', icon: 'home-outline', activeIcon: 'home' },
     { id: 'trips', label: 'Trips', icon: 'git-branch-outline', activeIcon: 'git-branch' },
+    ...(loadsEnabled ? [{ id: 'loads' as const, label: 'Loads', icon: 'cube-outline' as const, activeIcon: 'cube' as const }, { id: 'fuel' as const, label: 'Fuel', icon: 'speedometer-outline' as const, activeIcon: 'speedometer' as const }] : []),
     { id: 'alerts', label: 'Alerts', icon: 'notifications-outline', activeIcon: 'notifications', badge: needsAttention || undefined },
   ];
 
@@ -675,8 +829,15 @@ export default function HomeScreen({ onSignedOut }: { onSignedOut: () => void })
           </Press>
         </View>
       </View>
-      <View style={{ flex: 1 }}>{tab === 'home' ? homeTab : tab === 'trips' ? tripsTab : alertsTab}</View>
+      {notSending && (
+        <View style={{ marginHorizontal: 16, marginBottom: 8, padding: 12, borderRadius: 14, backgroundColor: 'rgba(245,158,11,0.14)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.5)' }} accessibilityRole="alert">
+          <Text style={{ color: colors.amber, fontWeight: '800', fontSize: 13 }}>You are offline</Text>
+          <Text style={{ color: colors.text, fontSize: 12, marginTop: 2 }}>Your location is not reaching your company. {pending} point{pending === 1 ? '' : 's'} saved on this phone and sent when you are back online.</Text>
+        </View>
+      )}
+      <View style={{ flex: 1 }}>{tab === 'home' ? homeTab : tab === 'trips' ? tripsTab : tab === 'loads' ? loadsTab : tab === 'fuel' ? fuelTab : alertsTab}</View>
       <TabBar tabs={tabs} value={tab} onChange={setTab} />
+      {loadPicker}
       {profileSheet}
       {deleteSheet}
       {tripSheet}
